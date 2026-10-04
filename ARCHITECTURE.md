@@ -2,9 +2,9 @@
 
 ## Boucle principale
 
-`setup()` initialise les services dans l'ordre identité, journal, stockage et
-Wi-Fi. `loop()` appelle fréquemment `WiFiService::tick()` et traite une petite
-interface série de provisioning. Aucun `delay()` long n'est utilisé.
+Le sketch utilisateur appelle seulement `ESPBase::begin()` et
+`ESPBase::loop()`. La façade initialise identité, journal, stockage, Wi-Fi et
+Web puis fait avancer les services et l'interface série sans attente longue.
 
 ## Composants
 
@@ -14,6 +14,10 @@ interface série de provisioning. Aucun `delay()` long n'est utilisé.
 - `ConfigStore` : contrat de lecture/écriture indépendant du backend. La phase
   1 emploie EEPROM sur ESP8266 avec magic, version et checksum.
 - `WiFiService` : machine d'état STA/AP, timeout et reconnexion périodique.
+- `WebService` : serveur HTTP, diagnostic et provisioning depuis l'AP. Il
+  utilise `ESP8266WebServer`; l'alias de classe isole le futur header ESP32.
+- `ESPBase` : façade publique et orchestration des services.
+- `Version` : valeurs par défaut du nom et de la version.
 
 ## États Wi-Fi
 
@@ -24,8 +28,23 @@ connexion réussie      -> STA, arrêt de l'AP
 timeout/perte durable  -> AP+STA et nouvelles tentatives périodiques
 ```
 
-L'AP n'est pas un portail captif dans cette phase. La saisie des identifiants
-se fait par Serial ; cette limite garde la première couche petite et testable.
+L'AP n'est pas un portail captif : l'utilisateur ouvre `192.168.4.1`. Le
+formulaire n'est affiché et son POST n'est accepté que lorsque l'AP est actif.
+Le provisioning Serial reste disponible comme solution de secours.
+
+## Web
+
+Les réponses sont construites avec de petits buffers fixes ou envoyées par
+fragments. Les routes métier ne font pas encore partie de l'API publique :
+elles seront ajoutées à la façade lorsque le premier cas réel le justifiera,
+sans système de plugins généraliste. Voir [`docs/WEB_API.md`](docs/WEB_API.md).
+
+## Bibliothèque Arduino
+
+`library.properties`, `src/` et `examples/Minimal/` suivent la structure
+Arduino standard. Un projet inclut uniquement `<ESPBase.h>` ; les autres
+classes sont des détails internes et ne doivent pas être orchestrées par son
+sketch.
 
 ## Portabilité future
 

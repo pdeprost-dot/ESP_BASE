@@ -1,29 +1,55 @@
 # ESP_BASE
 
-Socle Arduino minimal et réutilisable pour de petits projets ESP. La première
-cible réellement validée est l'ESP8266. Les accès propres à la plateforme sont
-isolés afin de permettre un portage ultérieur vers ESP32.
+ESP_BASE est une bibliothèque Arduino réutilisable, pas un firmware applicatif.
+Elle fournit l'infrastructure commune aux petits projets ESP derrière une
+façade unique. La première cible réellement validée est l'ESP8266.
 
-## Fonctions de la phase 1
+## Nouveau projet
+
+Copier `examples/Minimal` puis ajouter uniquement la logique métier :
+
+```cpp
+#include <ESPBase.h>
+
+ESPBase espBase("MonProjet", "1.0.0");
+
+void setup() {
+  espBase.begin();
+}
+
+void loop() {
+  espBase.loop();
+}
+```
+
+Le constructeur sans argument utilise `ESP_BASE` et `2.0.0`. Les chaînes
+fournies configurent le nom/version visibles dans les logs, la page et l'API.
+
+## Fonctions actuelles
 
 - identité stable dérivée de la puce ;
 - configuration Wi-Fi persistante en EEPROM ;
 - connexion STA et reconnexion sans attente bloquante ;
 - point d'accès de secours lorsque le STA n'est pas configuré ou joignable ;
 - petit journal circulaire en RAM ;
-- configuration minimale par le moniteur série.
+- configuration par le moniteur série ou par formulaire Web depuis l'AP ;
+- page de diagnostic et API HTTP en lecture seule.
 
-MQTT, serveur Web, OTA et logique métier sont volontairement absents.
+MQTT, OTA et logique métier sont volontairement absents. ESP32 n'est pas
+encore validé.
 
 ## Compiler
 
 Prérequis validés : Arduino CLI et core `esp8266:esp8266` 3.1.2.
 
 ```powershell
-arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 firmware/ESP_BASE
+arduino-cli compile --warnings all --fqbn esp8266:esp8266:nodemcuv2 `
+  --library . examples/Minimal
 ```
 
-Le sketch n'utilise aucune bibliothèque externe au core ESP8266.
+Le dépôt peut aussi être cloné dans le dossier `libraries` d'Arduino puis
+ouvert depuis **File > Examples > ESP_BASE > Minimal**. Aucune dépendance
+externe au core ESP8266 n'est requise.
 
 ## Jalon matériel ESP8266 Base V1
 
@@ -39,8 +65,8 @@ la configuration persistante, le Wi-Fi STA, la reconnexion, l'AP de secours,
 le provisioning série, le journal circulaire et le diagnostic de mémoire par
 `STATUS`.
 
-Le serveur Web, Web OTA, ArduinoOTA, MQTT et les plateformes ESP32 ne sont pas
-implémentés ou validés dans ce jalon.
+Ce tag V1 reste récupérable tel quel. Le développement courant ajoute Web/API,
+mais Web OTA, ArduinoOTA, MQTT et les plateformes ESP32 restent non validés.
 
 ## Premier démarrage
 
@@ -58,13 +84,14 @@ HELP
 
 `WIFI` accepte un mot de passe vide pour un réseau ouvert. La configuration
 est enregistrée puis la connexion démarre. `CLEAR` efface uniquement la
-configuration Wi-Fi. L'AP permet de retrouver et d'identifier l'appareil ; un
-portail Web sera étudié dans une phase ultérieure. Son mot de passe généré est
-affiché sur Serial au démarrage de l'AP, mais n'est pas conservé dans les logs.
+configuration Wi-Fi. En mode AP, ouvrir `http://192.168.4.1/` pour utiliser le
+formulaire Web. Son mot de passe généré est affiché sur Serial au démarrage de
+l'AP, mais n'est pas conservé dans les logs.
 
 ## Documentation
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) : composants et flux d'exécution ;
 - [CONVENTIONS.md](CONVENTIONS.md) : règles de développement ;
 - [AGENTS.md](AGENTS.md) : contexte autonome pour les assistants de code.
+- [docs/WEB_API.md](docs/WEB_API.md) : routes, provisioning et sécurité.
 

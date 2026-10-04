@@ -18,6 +18,9 @@ class WiFiService {
   const char* apSsid() const { return apSsid_; }
   String stationIp() const;
   String apIp() const;
+  String currentSsid() const;
+  int32_t rssi() const;
+  const char* modeName() const;
 
  private:
   static constexpr uint32_t kConnectTimeoutMs = 15000;

@@ -120,3 +120,18 @@ String WiFiService::apIp() const {
   return apActive_ ? WiFi.softAPIP().toString() : String();
 }
 
+String WiFiService::currentSsid() const {
+  return WiFi.status() == WL_CONNECTED ? WiFi.SSID() : String();
+}
+
+int32_t WiFiService::rssi() const {
+  return WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
+}
+
+const char* WiFiService::modeName() const {
+  if (apActive_ && WiFi.status() == WL_CONNECTED) return "AP+STA";
+  if (apActive_) return "AP";
+  return "STA";
+}
+
+

@@ -11,6 +11,7 @@ class LogService {
   void add(const char* component, const char* format, ...);
   void printTo(Stream& output) const;
   size_t count() const { return count_; }
+  const char* line(size_t index) const;
 
  private:
   char lines_[kLineCount][kLineLength]{};

@@ -24,9 +24,14 @@ void LogService::add(const char* component, const char* format, ...) {
 }
 
 void LogService::printTo(Stream& output) const {
-  const size_t first = count_ == kLineCount ? next_ : 0;
   for (size_t index = 0; index < count_; ++index) {
-    output.println(lines_[(first + index) % kLineCount]);
+    output.println(line(index));
   }
+}
+
+const char* LogService::line(size_t index) const {
+  if (index >= count_) return "";
+  const size_t first = count_ == kLineCount ? next_ : 0;
+  return lines_[(first + index) % kLineCount];
 }
 
