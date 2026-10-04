@@ -1,0 +1,11 @@
+build/
+*.bin
+*.elf
+*.map
+*.hex
+*.eep
+*.log
+.vscode/
+.idea/
+local/
+
