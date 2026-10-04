@@ -29,6 +29,26 @@ uint32_t ConfigStore::checksum(const Data& data) { return hashUntilChecksum(data
 uint32_t ConfigStore::legacyV1Checksum(const LegacyDataV1& data) { return hashUntilChecksum(data); }
 uint32_t ConfigStore::legacyV2Checksum(const LegacyDataV2& data) { return hashUntilChecksum(data); }
 uint32_t ConfigStore::legacyV3Checksum(const LegacyDataV3& data) { return hashUntilChecksum(data); }
+uint32_t ConfigStore::legacyV4Checksum(const LegacyDataV4& data) { return hashUntilChecksum(data); }
+
+bool ConfigStore::validMqttText(const char* value, size_t capacity) {
+  if (!value || strnlen(value, capacity) >= capacity) return false;
+  for (size_t index = 0; value[index]; ++index) {
+    const uint8_t character = static_cast<uint8_t>(value[index]);
+    if (character < 0x20 || character > 0x7e) return false;
+  }
+  return true;
+}
+
+bool ConfigStore::validMqttRoot(const char* value) {
+  if (!validMqttText(value, 65)) return false;
+  const size_t length = strlen(value);
+  if (length == 0) return false;
+  for (size_t index = 0; index < length; ++index) {
+    if (value[index] == '+' || value[index] == '#') return false;
+  }
+  return true;
+}
 
 bool ConfigStore::validPassword(const char* value, bool allowEmpty) {
   if (!value) return false;
@@ -116,6 +136,30 @@ bool ConfigStore::saveApSettings(const char* value, bool alwaysOn) {
 bool ConfigStore::saveApPassword(const char* value) { return saveApSettings(value, apAlwaysOn()); }
 bool ConfigStore::resetApPassword() { return saveApSettings(defaultApPassword(), apAlwaysOn()); }
 
+bool ConfigStore::saveMqtt(bool enabled, const char* broker, uint16_t port,
+                           const char* username, const char* password,
+                           const char* rootTopic) {
+  if (!validMqttText(broker, sizeof(data_.mqttBroker)) ||
+      !validMqttText(username, sizeof(data_.mqttUsername)) ||
+      !validMqttText(password, sizeof(data_.mqttPassword)) ||
+      !validMqttRoot(rootTopic) || port == 0 || (enabled && broker[0] == '\0')) return false;
+  Data candidate = data_;
+  candidate.mqttEnabled = enabled ? 1 : 0;
+  strlcpy(candidate.mqttBroker, broker, sizeof(candidate.mqttBroker));
+  candidate.mqttPort = port;
+  strlcpy(candidate.mqttUsername, username, sizeof(candidate.mqttUsername));
+  strlcpy(candidate.mqttPassword, password, sizeof(candidate.mqttPassword));
+  while (*rootTopic == '/') ++rootTopic;
+  size_t rootLength = strlen(rootTopic);
+  while (rootLength && rootTopic[rootLength - 1] == '/') --rootLength;
+  if (!rootLength || rootLength >= sizeof(candidate.mqttRootTopic)) return false;
+  memcpy(candidate.mqttRootTopic, rootTopic, rootLength);
+  candidate.mqttRootTopic[rootLength] = '\0';
+  candidate.magic = kMagic; candidate.version = kVersion; candidate.checksum = checksum(candidate);
+  data_ = candidate;
+  return saveBackend();
+}
+
 bool ConfigStore::loadBackend() {
 #if defined(ESP8266)
   EEPROM.begin(sizeof(Data));
@@ -125,13 +169,19 @@ bool ConfigStore::loadBackend() {
   preferences.begin("esp-base", true);
   const size_t storedLength = preferences.getBytesLength("config");
   const size_t read = storedLength == sizeof(data_) ? preferences.getBytes("config", &data_, sizeof(data_)) : 0;
-  LegacyDataV3 legacyV3{}; LegacyDataV2 legacyV2{}; LegacyDataV1 legacyV1{};
+  LegacyDataV4 legacyV4{}; LegacyDataV3 legacyV3{}; LegacyDataV2 legacyV2{}; LegacyDataV1 legacyV1{};
+  const size_t readV4 = storedLength == sizeof(legacyV4) ? preferences.getBytes("config", &legacyV4, sizeof(legacyV4)) : 0;
   const size_t readV3 = storedLength == sizeof(legacyV3) ? preferences.getBytes("config", &legacyV3, sizeof(legacyV3)) : 0;
   const size_t readV2 = storedLength == sizeof(legacyV2) ? preferences.getBytes("config", &legacyV2, sizeof(legacyV2)) : 0;
   const size_t readV1 = storedLength == sizeof(legacyV1) ? preferences.getBytes("config", &legacyV1, sizeof(legacyV1)) : 0;
   preferences.end();
   if (read != sizeof(data_)) {
-    if (readV3 == sizeof(legacyV3) && legacyV3.magic == kMagic && legacyV3.version == 3 && legacyV3.checksum == legacyV3Checksum(legacyV3)) {
+    if (readV4 == sizeof(legacyV4) && legacyV4.magic == kMagic && legacyV4.version == 4 && legacyV4.checksum == legacyV4Checksum(legacyV4)) {
+      memcpy(data_.ssid1, legacyV4.ssid1, sizeof(data_.ssid1)); memcpy(data_.password1, legacyV4.password1, sizeof(data_.password1));
+      memcpy(data_.ssid2, legacyV4.ssid2, sizeof(data_.ssid2)); memcpy(data_.password2, legacyV4.password2, sizeof(data_.password2));
+      memcpy(data_.adminPassword, legacyV4.adminPassword, sizeof(data_.adminPassword));
+      memcpy(data_.apPassword, legacyV4.apPassword, sizeof(data_.apPassword)); data_.apAlwaysOn = legacyV4.apAlwaysOn;
+    } else if (readV3 == sizeof(legacyV3) && legacyV3.magic == kMagic && legacyV3.version == 3 && legacyV3.checksum == legacyV3Checksum(legacyV3)) {
       memcpy(data_.ssid1, legacyV3.ssid, sizeof(data_.ssid1));
       memcpy(data_.password1, legacyV3.password, sizeof(data_.password1));
       memcpy(data_.adminPassword, legacyV3.adminPassword, sizeof(legacyV3.adminPassword));
@@ -152,8 +202,18 @@ bool ConfigStore::loadBackend() {
   data_.ssid1[sizeof(data_.ssid1) - 1] = '\0'; data_.password1[sizeof(data_.password1) - 1] = '\0';
   data_.ssid2[sizeof(data_.ssid2) - 1] = '\0'; data_.password2[sizeof(data_.password2) - 1] = '\0';
   data_.adminPassword[sizeof(data_.adminPassword) - 1] = '\0'; data_.apPassword[sizeof(data_.apPassword) - 1] = '\0';
+  data_.mqttBroker[sizeof(data_.mqttBroker) - 1] = '\0'; data_.mqttUsername[sizeof(data_.mqttUsername) - 1] = '\0';
+  data_.mqttPassword[sizeof(data_.mqttPassword) - 1] = '\0'; data_.mqttRootTopic[sizeof(data_.mqttRootTopic) - 1] = '\0';
   if (data_.magic == kMagic && data_.version == kVersion && data_.checksum == checksum(data_)) return true;
 #if defined(ESP8266)
+  LegacyDataV4 legacyV4{}; EEPROM.get(0, legacyV4);
+  if (legacyV4.magic == kMagic && legacyV4.version == 4 && legacyV4.checksum == legacyV4Checksum(legacyV4)) {
+    data_ = Data{}; memcpy(data_.ssid1, legacyV4.ssid1, sizeof(data_.ssid1));
+    memcpy(data_.password1, legacyV4.password1, sizeof(data_.password1));
+    memcpy(data_.ssid2, legacyV4.ssid2, sizeof(data_.ssid2)); memcpy(data_.password2, legacyV4.password2, sizeof(data_.password2));
+    memcpy(data_.adminPassword, legacyV4.adminPassword, sizeof(data_.adminPassword));
+    memcpy(data_.apPassword, legacyV4.apPassword, sizeof(data_.apPassword)); data_.apAlwaysOn = legacyV4.apAlwaysOn;
+  } else {
   LegacyDataV3 legacyV3{}; EEPROM.get(0, legacyV3);
   if (legacyV3.magic == kMagic && legacyV3.version == 3 && legacyV3.checksum == legacyV3Checksum(legacyV3)) {
     data_ = Data{}; memcpy(data_.ssid1, legacyV3.ssid, sizeof(data_.ssid1));
@@ -172,7 +232,7 @@ bool ConfigStore::loadBackend() {
       data_ = Data{}; memcpy(data_.ssid1, legacyV1.ssid, sizeof(data_.ssid1));
       memcpy(data_.password1, legacyV1.password, sizeof(data_.password1));
     }
-  }
+  }}
   if (data_.apPassword[0] == '\0') strlcpy(data_.apPassword, defaultApPassword(), sizeof(data_.apPassword));
   data_.magic = kMagic; data_.version = kVersion; data_.checksum = checksum(data_);
   return saveBackend();

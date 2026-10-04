@@ -13,6 +13,12 @@ class ConfigStore {
   const char* password(uint8_t slot) const;
   const char* apPassword() const { return data_.apPassword; }
   bool apAlwaysOn() const { return data_.apAlwaysOn != 0; }
+  bool mqttEnabled() const { return data_.mqttEnabled != 0; }
+  const char* mqttBroker() const { return data_.mqttBroker; }
+  uint16_t mqttPort() const { return data_.mqttPort; }
+  const char* mqttUsername() const { return data_.mqttUsername; }
+  const char* mqttPassword() const { return data_.mqttPassword; }
+  const char* mqttRootTopic() const { return data_.mqttRootTopic; }
   bool saveWiFi(const char* ssid, const char* password);
   bool saveWiFi(uint8_t slot, const char* ssid, const char* password);
   bool saveStations(const char* ssid1, const char* password1,
@@ -20,13 +26,15 @@ class ConfigStore {
   bool saveApPassword(const char* password);
   bool resetApPassword();
   bool saveApSettings(const char* password, bool alwaysOn);
+  bool saveMqtt(bool enabled, const char* broker, uint16_t port,
+                const char* username, const char* password, const char* rootTopic);
   bool clear();
 
   static const char* defaultApPassword() { return "ESPbaseSetup"; }
 
  private:
   static constexpr uint32_t kMagic = 0x45535042UL;
-  static constexpr uint16_t kVersion = 4;
+  static constexpr uint16_t kVersion = 5;
 
   struct LegacyDataV1 {
     uint32_t magic;
@@ -55,6 +63,19 @@ class ConfigStore {
     uint32_t checksum;
   };
 
+  struct LegacyDataV4 {
+    uint32_t magic;
+    uint16_t version;
+    char ssid1[33];
+    char password1[65];
+    char ssid2[33];
+    char password2[65];
+    char adminPassword[64];
+    char apPassword[64];
+    uint8_t apAlwaysOn;
+    uint32_t checksum;
+  };
+
   struct Data {
     uint32_t magic = 0;
     uint16_t version = 0;
@@ -65,6 +86,12 @@ class ConfigStore {
     char adminPassword[64]{};
     char apPassword[64]{};
     uint8_t apAlwaysOn = 0;
+    uint8_t mqttEnabled = 0;
+    char mqttBroker[64]{};
+    uint16_t mqttPort = 1883;
+    char mqttUsername[40]{};
+    char mqttPassword[64]{};
+    char mqttRootTopic[65] = "espbase/device";
     uint32_t checksum = 0;
   };
 
@@ -72,8 +99,11 @@ class ConfigStore {
   static uint32_t legacyV1Checksum(const LegacyDataV1& data);
   static uint32_t legacyV2Checksum(const LegacyDataV2& data);
   static uint32_t legacyV3Checksum(const LegacyDataV3& data);
+  static uint32_t legacyV4Checksum(const LegacyDataV4& data);
   static bool validStation(const char* ssid, const char* password, bool optional);
   static bool validPassword(const char* password, bool allowEmpty);
+  static bool validMqttText(const char* value, size_t capacity);
+  static bool validMqttRoot(const char* value);
   bool loadBackend();
   bool saveBackend();
 

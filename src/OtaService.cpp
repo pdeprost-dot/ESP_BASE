@@ -9,6 +9,15 @@
 #include <Update.h>
 #endif
 
+void OtaService::setStartHandler(OtaStartHandler handler, void* context) {
+  startHandler_ = handler;
+  startContext_ = context;
+}
+
+void OtaService::notifyStarted() {
+  if (startHandler_) startHandler_(startContext_);
+}
+
 void OtaService::begin(const char* hostname, const char* password, LogService& logs) {
   logs_ = &logs;
   strlcpy(hostname_, hostname ? hostname : "esp-base", sizeof(hostname_));
@@ -32,6 +41,7 @@ void OtaService::tick(bool stationConnected) {
       arduinoOtaActive_ = true;
       lastArduinoProgress_ = 0;
       logs_->add("OTA", "ArduinoOTA started");
+      notifyStarted();
     });
     ArduinoOTA.onProgress([this](unsigned int progress, unsigned int total) {
       if (total == 0) return;
@@ -73,6 +83,7 @@ bool OtaService::beginWebUpdate() {
   }
   webUpdateActive_ = true;
   logs_->add("OTA", "Web update started");
+  notifyStarted();
   return true;
 }
 

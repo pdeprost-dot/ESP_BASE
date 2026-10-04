@@ -4,7 +4,7 @@
 
 Le sketch utilisateur appelle seulement `ESPBase::begin()` et
 `ESPBase::loop()`. La façade initialise identité, journal, stockage, Wi-Fi et
-Web et OTA puis fait avancer les services et l'interface série sans attente
+Web, OTA et MQTT puis fait avancer les services et l'interface série sans attente
 longue.
 
 ## Composants
@@ -19,6 +19,9 @@ longue.
 - `WebService` : serveur HTTP, diagnostic, configuration Wi-Fi et Web OTA.
 - `OtaService` : ArduinoOTA, écriture Web OTA, progression, erreurs et reboot
   différé. Les transitions Wi-Fi volontaires sont suspendues pendant l'OTA.
+- `MqttService` : client PubSubClient optionnel, backoff borné, publication,
+  table fixe de quatre souscriptions et réabonnement automatique. Il observe le
+  Wi-Fi sans jamais le piloter et suspend toute connexion pendant l'OTA.
 - `ESPBase` : façade publique et orchestration des services.
 - `Version` : valeurs par défaut du nom et de la version.
 
@@ -54,5 +57,5 @@ sketch.
 
 Les includes propres aux plateformes restent dans `PlatformCompat`, les
 services concernés et le backend de `ConfigStore`. ESP32 est validé par
-compilation pour 2.2.0 ; la validation matérielle reste à effectuer.
+compilation pour 2.3.0 ; la validation matérielle reste à effectuer.
 

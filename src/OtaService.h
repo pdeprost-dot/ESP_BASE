@@ -4,9 +4,12 @@
 
 #include "LogService.h"
 
+using OtaStartHandler = void (*)(void* context);
+
 class OtaService {
  public:
   void begin(const char* hostname, const char* password, LogService& logs);
+  void setStartHandler(OtaStartHandler handler, void* context = nullptr);
   void tick(bool stationConnected);
 
   bool beginWebUpdate();
@@ -23,7 +26,11 @@ class OtaService {
   uint32_t minimumHeap() const { return minimumHeap_; }
 
  private:
+  void notifyStarted();
+
   LogService* logs_ = nullptr;
+  OtaStartHandler startHandler_ = nullptr;
+  void* startContext_ = nullptr;
   bool enabled_ = false;
   bool arduinoOtaStarted_ = false;
   bool arduinoOtaActive_ = false;

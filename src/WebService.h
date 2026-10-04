@@ -16,6 +16,7 @@ using NativeWebServer = WebServer;
 #include "ConfigStore.h"
 #include "LogService.h"
 #include "OtaService.h"
+#include "MqttService.h"
 #include "WebResponse.h"
 #include "WiFiService.h"
 
@@ -26,7 +27,7 @@ class WebService {
   bool addPage(const char* label, const char* path, WebRouteHandler handler, void* context);
   void begin(const char* projectName, const char* firmwareVersion,
              const DeviceIdentity& identity, ConfigStore& config,
-             WiFiService& wifi, OtaService& ota, LogService& logs);
+             WiFiService& wifi, OtaService& ota, MqttService& mqtt, LogService& logs);
   void tick();
   NativeWebServer& nativeServer() { return server_; }
   uint32_t heapBeforeBegin() const { return heapBeforeBegin_; }
@@ -66,12 +67,14 @@ class WebService {
   void sendLogsPage();
   void sendSystemPage();
   void sendOtaPage();
+  void sendMqttPage();
   void sendStatus();
   void sendLogs();
   void saveWiFi();
   void saveWifiSetup();
   void saveWifiConfig();
   void saveApPassword();
+  void saveMqtt();
   void startWifiScan();
   void sendWifiScan();
   void finishOtaUpload();
@@ -88,6 +91,7 @@ class WebService {
   ConfigStore* config_ = nullptr;
   WiFiService* wifi_ = nullptr;
   OtaService* ota_ = nullptr;
+  MqttService* mqtt_ = nullptr;
   LogService* logs_ = nullptr;
   uint32_t heapBeforeBegin_ = 0;
   uint32_t heapAfterBegin_ = 0;

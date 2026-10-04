@@ -18,6 +18,11 @@ bool ESPBase::addPage(const char* label, const char* path, WebRouteHandler handl
   return webService_.addPage(label, path, handler, context);
 }
 
+void ESPBase::handleOtaStarted(void* context) {
+  ESPBase* base = static_cast<ESPBase*>(context);
+  if (base) base->mqttService_.suspend();
+}
+
 void ESPBase::begin() {
   Serial.begin(115200);
   Serial.println();
@@ -29,9 +34,11 @@ void ESPBase::begin() {
   logService_.add("SYSTEM", "free_heap=%lu",
                   static_cast<unsigned long>(PlatformCompat::freeHeap()));
   wifiService_.begin(deviceIdentity_.hostname(), configStore_, logService_);
+  otaService_.setStartHandler(handleOtaStarted, this);
   otaService_.begin(deviceIdentity_.hostname(), nullptr, logService_);
+  mqttService_.begin(configStore_, deviceIdentity_, logService_);
   webService_.begin(projectName_, firmwareVersion_, deviceIdentity_, configStore_,
-                    wifiService_, otaService_, logService_);
+                    wifiService_, otaService_, mqttService_, logService_);
   printHelp();
 }
 
@@ -39,6 +46,7 @@ void ESPBase::loop() {
   tickSerial();
   if (!otaService_.busy()) wifiService_.tick();
   otaService_.tick(wifiService_.connected());
+  mqttService_.tick(wifiService_.connected(), otaService_.busy());
   webService_.tick();
   yield();
 }

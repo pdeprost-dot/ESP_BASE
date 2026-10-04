@@ -1,17 +1,18 @@
 # ESP_BASE
 
-ESP_BASE est une bibliothèque Arduino réutilisable, pas un firmware applicatif.
-Elle fournit l'infrastructure commune aux petits projets ESP derrière une
-façade unique. La première cible réellement validée est l'ESP8266.
+ESP_BASE est une bibliothèque Arduino réutilisable pour ESP8266 et ESP32. Elle
+sépare l'infrastructure commune (identité, configuration, réseau, Web, OTA et
+MQTT) de la logique métier, qui reste dans le projet consommateur.
 
-## Nouveau projet
+## Installation et sketch minimal
 
-Copier `examples/Minimal` puis ajouter uniquement la logique métier :
+Installer ESP_BASE comme bibliothèque Arduino ainsi que `PubSubClient` 2.8,
+puis utiliser la façade unique :
 
 ```cpp
 #include <ESPBase.h>
 
-ESPBase espBase("MonProjet", "1.0.0");
+ESPBase espBase;
 
 void setup() {
   espBase.begin();
@@ -22,26 +23,64 @@ void loop() {
 }
 ```
 
-Le constructeur sans argument utilise `ESP_BASE` et `2.2.0`. Les chaînes
-fournies configurent le nom/version visibles dans les logs, la page et l'API.
-
-Un projet personnalisé indique simplement son identité :
+`examples/Minimal/Minimal.ino` est le modèle officiel. Le constructeur sans
+argument expose le nom `ESP_BASE` et la version `2.3.0`. Une application peut
+fournir son propre nom et sa propre version :
 
 ```cpp
 ESPBase espBase("Mon Projet", "1.0.0");
 ```
 
-Une API métier GET s'ajoute avant `begin()` :
+La version est accessible par `espBase.firmwareVersion()`, sur les pages Web,
+dans `/api/status` et au démarrage Serial. Sa capacité est de 63 caractères
+utiles plus le terminateur nul.
+
+## Fonctions livrées
+
+- `DeviceIdentity` : Device ID et hostname stables dérivés de la puce ;
+- `ConfigStore` : configuration persistante et migrations versionnées ;
+- Wi-Fi STA1 prioritaire, STA2 de secours, failover et reconnexion non bloquants ;
+- AP de secours automatique et mode AP Always ON ;
+- scan et configuration Wi-Fi depuis `/wifi` ;
+- Web UI, API de diagnostic, journal circulaire et diagnostic mémoire ;
+- routes GET et pages applicatives ajoutées sans modifier ESP_BASE ;
+- Web OTA et ArduinoOTA avec progression et reboot ;
+- MQTT optionnel : publish/subscribe, retained, reconnexion avec backoff
+  5/15/30/60 s et réabonnement automatique ;
+- suspension immédiate de MQTT pendant Web OTA ou ArduinoOTA.
+
+Tous les services progressent via `begin()`/`loop()` sans attente longue dans
+la boucle applicative.
+
+## Premier démarrage et Wi-Fi
+
+Sans réseau utilisable, ESP_BASE crée l'AP `<hostname>-setup` avec le mot de
+passe usine `ESPbaseSetup`. Se connecter à cet AP, ouvrir
+`http://192.168.4.1/`, puis configurer STA1 et éventuellement STA2. STA1 est
+prioritaire ; STA2 est essayé si STA1 reste indisponible. Une fois un STA
+connecté, l'AP s'arrête sauf si AP Always ON est activé.
+
+La page `/wifi` permet aussi le scan, la saisie manuelle des SSID, le changement
+du mot de passe AP et le mode AP permanent. Le provisioning Serial reste
+disponible à 115200 bauds avec `WIFI <ssid>|<password>`, `STATUS`, `LOGS`,
+`CLEAR` et `HELP`.
+
+## Extension Web applicative
+
+Les routes doivent être enregistrées avant `espBase.begin()`. Une route API GET :
 
 ```cpp
 void handleValue(WebResponse& response, void*) {
   response.sendJson("{\"value\":42}");
 }
 
-espBase.addGetRoute("/api/value", handleValue);
+void setup() {
+  espBase.addGetRoute("/api/value", handleValue);
+  espBase.begin();
+}
 ```
 
-Une page métier bénéficie du shell et de la navbar ESP_BASE :
+Une page ajoutée à la navbar utilise le shell Web commun :
 
 ```cpp
 void handlePage(WebResponse& response, void*) {
@@ -50,98 +89,82 @@ void handlePage(WebResponse& response, void*) {
   response.endPage();
 }
 
-espBase.addPage("Capteur", "/capteur", handlePage);
+void setup() {
+  espBase.addPage("Capteur", "/capteur", handlePage);
+  espBase.begin();
+}
 ```
 
-ESP_BASE prend en charge l'infrastructure ; le projet consommateur conserve
-uniquement sa logique métier.
+`WebResponse` fournit `sendJson()`, `sendText()`, `beginPage()`, `write()` et
+`endPage()`. Les callbacks acceptent un pointeur de contexte optionnel. La
+capacité partagée est de quatre routes/pages GET applicatives.
 
-## Fonctions actuelles
+## MQTT
 
-- identité stable dérivée de la puce ;
-- configuration Wi-Fi persistante en EEPROM ;
-- connexion STA et reconnexion sans attente bloquante ;
-- point d'accès de secours lorsque le STA n'est pas configuré ou joignable ;
-- petit journal circulaire en RAM ;
-- configuration par le moniteur série ou par formulaire Web depuis l'AP ;
-- page de diagnostic et API HTTP en lecture seule ;
-- routes GET applicatives bornées via `ESPBase::addGetRoute()` ;
-- shell Web responsive et pages applicatives via `ESPBase::addPage()`.
-- administration Wi-Fi locale et mises à jour ArduinoOTA/Web OTA intégrées au
-  socle, sans authentification applicative dans la phase 2.2 actuelle.
+MQTT est désactivé par défaut. L'utilisateur configure depuis `/mqtt` le
+broker, le port, le username/password optionnel et le root topic. Les topics
+passés par l'application sont relatifs : ESP_BASE préfixe automatiquement le
+root configuré.
 
-MQTT et logique métier sont volontairement absents. ESP32 n'est pas encore
-validé sur matériel.
+```cpp
+void onCommand(const char* topic, const uint8_t* payload,
+               size_t length, void* context) {
+  // Callback court et non bloquant ; payload n'est pas nécessairement terminé par \0.
+}
 
-## Compiler
+void setup() {
+  espBase.begin();
+  espBase.mqtt().subscribe("commands/test", onCommand);
+}
 
-Prérequis validés : Arduino CLI et core `esp8266:esp8266` 3.1.2.
+void publishMeasurement() {
+  if (espBase.mqtt().enabled() && espBase.mqtt().connected()) {
+    espBase.mqtt().publish("temperature", "24.8", true);
+  }
+}
+```
+
+`retained=true` conserve le dernier état côté broker. Jusqu'à quatre
+souscriptions sont enregistrées en mémoire et réinstallées après reconnexion.
+Le transport utilise un backoff 5/15/30/60 secondes lorsque le broker est
+indisponible. MQTT ne choisit jamais le réseau Wi-Fi. Au début d'une OTA,
+ESP_BASE le suspend et le déconnecte immédiatement ; le fonctionnement normal
+reprend après le reboot.
+
+## OTA
+
+La page `/ota` accepte un binaire compilé pour la carte cible. ArduinoOTA est
+annoncé avec le hostname ESP_BASE lorsque le STA est connecté. Les deux chemins
+conservent la configuration persistante, suspendent MQTT et redémarrent après
+succès. Web OTA et ArduinoOTA ont été validés physiquement avec l'USB conservé
+comme observateur Serial ; le scénario spécifique sans USB reste à vérifier.
+
+## Compilation
+
+Depuis la racine du dépôt :
 
 ```powershell
 arduino-cli compile --warnings all --fqbn esp8266:esp8266:nodemcuv2 `
   --library . examples/Minimal
 ```
 
-Le dépôt peut aussi être cloné dans le dossier `libraries` d'Arduino puis
-ouvert depuis **File > Examples > ESP_BASE > Minimal**. Aucune dépendance
-externe au core ESP8266 n'est requise.
+Plateformes vérifiées pour 2.3.0 :
 
-## Jalon matériel ESP8266 Base V1
+- ESP8266 NodeMCU et Wemos D1 mini : compilation et validation physique ;
+- ESP32 générique : compilation validée, sans campagne physique équivalente.
 
-La première plateforme physiquement validée est :
+## Sécurité
 
-- ESP8266EX ;
-- NodeMCU 1.0, FQBN `esp8266:esp8266:nodemcuv2` ;
-- flash 4 Mo ;
-- Arduino ESP8266 core 3.1.2.
+ESP_BASE 2.3.0 cible un LAN de confiance. Il n'offre pas encore
+d'authentification générale pour l'interface Web, Web OTA ou ArduinoOTA, et le
+transport MQTT n'utilise pas TLS. Ne jamais exposer directement ces services à
+Internet ou à un réseau non fiable. Les mots de passe Wi-Fi/MQTT ne sont jamais
+renvoyés par l'API ni écrits dans les logs ; les formulaires les masquent par
+défaut mais permettent leur affichage local volontaire.
 
-Les fonctions validées sur ce matériel sont l'identité stable, le hostname,
-la configuration persistante, le Wi-Fi STA, la reconnexion, l'AP de secours,
-le provisioning série, le journal circulaire et le diagnostic de mémoire par
-`STATUS`.
+## Documentation complémentaire
 
-Ce tag V1 reste récupérable tel quel. Le développement courant 2.2 ajoute
-Web/API, Wi-Fi dual-STA et OTA. Web OTA et ArduinoOTA sont validés sur Wemos
-D1 mini ; ESP32 est validé par compilation uniquement et MQTT reste absent.
-
-## Premier démarrage
-
-Ouvrir le moniteur série à 115200 bauds. Sans configuration, l'appareil crée
-un AP `<hostname>-setup` protégé par le mot de passe usine public
-`ESPbaseSetup` et affiche les commandes disponibles :
-
-```text
-WIFI mon-ssid|mon-mot-de-passe
-STATUS
-LOGS
-CLEAR
-HELP
-```
-
-`WIFI` accepte un mot de passe vide pour un réseau ouvert. La configuration
-est enregistrée puis la connexion démarre. `CLEAR` efface uniquement la
-configuration Wi-Fi. En mode AP, ouvrir `http://192.168.4.1/` pour utiliser le
-formulaire Web. La procédure standard, utilisable sans USB ni Serial, est :
-
-1. rechercher `espbase-XXXXXX-setup` ;
-2. se connecter avec `ESPbaseSetup` ;
-3. ouvrir `http://192.168.4.1` ;
-4. configurer le Wi-Fi LAN ;
-5. attendre la connexion STA et l'arrêt automatique de l'AP.
-
-Le propriétaire peut remplacer le mot de passe AP depuis `/wifi`. Il reste
-persistant, masqué par défaut dans le formulaire, affichable à la demande et
-peut être explicitement rétabli à `ESPbaseSetup`. Aucun mot de passe n'est
-renvoyé par l'API ou journalisé.
-
-> **Sécurité 2.2.0 :** l'interface Web, Web OTA et ArduinoOTA ne disposent
-> volontairement d'aucune authentification applicative. Ne jamais exposer
-> directement ESP_BASE à Internet ou à un réseau non fiable.
-
-## Documentation
-
-- [ARCHITECTURE.md](ARCHITECTURE.md) : composants et flux d'exécution ;
+- [ARCHITECTURE.md](ARCHITECTURE.md) : composants et orchestration ;
 - [CONVENTIONS.md](CONVENTIONS.md) : règles de développement ;
-- [AGENTS.md](AGENTS.md) : contexte autonome pour les assistants de code.
-- [docs/WEB_API.md](docs/WEB_API.md) : routes, provisioning et sécurité.
-
+- [AGENTS.md](AGENTS.md) : contexte autonome pour les assistants ;
+- [docs/WEB_API.md](docs/WEB_API.md) : routes, provisioning et limites Web.

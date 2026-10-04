@@ -64,13 +64,15 @@ bool WebService::addApplicationRoute(const char* label, const char* path,
 
 void WebService::begin(const char* projectName, const char* firmwareVersion,
                        const DeviceIdentity& identity, ConfigStore& config,
-                       WiFiService& wifi, OtaService& ota, LogService& logs) {
+                       WiFiService& wifi, OtaService& ota, MqttService& mqtt,
+                       LogService& logs) {
   projectName_ = projectName;
   firmwareVersion_ = firmwareVersion;
   identity_ = &identity;
   config_ = &config;
   wifi_ = &wifi;
   ota_ = &ota;
+  mqtt_ = &mqtt;
   logs_ = &logs;
   heapBeforeBegin_ = PlatformCompat::freeHeap();
   registerRoutes();
@@ -105,6 +107,7 @@ void WebService::registerRoutes() {
   server_.on("/wifi", HTTP_GET, [this]() { sendWifiPage(); });
   server_.on("/logs", HTTP_GET, [this]() { sendLogsPage(); });
   server_.on("/ota", HTTP_GET, [this]() { sendOtaPage(); });
+  server_.on("/mqtt", HTTP_GET, [this]() { sendMqttPage(); });
   server_.on("/system", HTTP_GET, [this]() { sendSystemPage(); });
   server_.on("/api/status", HTTP_GET, [this]() { sendStatus(); });
   server_.on("/api/logs", HTTP_GET, [this]() { sendLogs(); });
@@ -114,6 +117,7 @@ void WebService::registerRoutes() {
   server_.on("/api/wifi/scan", HTTP_POST, [this]() { startWifiScan(); });
   server_.on("/api/wifi/scan", HTTP_GET, [this]() { sendWifiScan(); });
   server_.on("/api/ap-password", HTTP_POST, [this]() { saveApPassword(); });
+  server_.on("/api/mqtt", HTTP_POST, [this]() { saveMqtt(); });
   server_.on("/api/ota", HTTP_POST, [this]() { finishOtaUpload(); },
              [this]() { handleOtaUpload(); });
   for (size_t index = 0; index < applicationRouteCount_; ++index) {
@@ -127,11 +131,13 @@ bool WebService::isReservedRoute(const char* path) {
   return strcmp(path, "/") == 0 || strcmp(path, "/api/status") == 0 ||
          strcmp(path, "/api/logs") == 0 || strcmp(path, "/api/wifi") == 0 ||
          strcmp(path, "/api/ap-password") == 0 ||
+         strcmp(path, "/api/mqtt") == 0 ||
          strcmp(path, "/api/wifi/config") == 0 || strcmp(path, "/api/wifi/setup") == 0 ||
          strcmp(path, "/api/wifi/scan") == 0 ||
          strcmp(path, "/setup") == 0 ||
          strcmp(path, "/wifi") == 0 || strcmp(path, "/logs") == 0 ||
          strcmp(path, "/ota") == 0 || strcmp(path, "/system") == 0 ||
+         strcmp(path, "/mqtt") == 0 ||
          strcmp(path, "/api/ota") == 0;
 }
 
@@ -205,6 +211,7 @@ void WebService::beginPage(const char* title, const char* activePath) {
     }
   }
   sendNavItem("Wi-Fi", "/wifi", activePath);
+  sendNavItem("MQTT", "/mqtt", activePath);
   if (wifi_->apActive()) sendNavItem("Provisioning", "/setup", activePath);
   sendNavItem("Logs", "/logs", activePath);
   if (ota_->enabled()) sendNavItem("OTA", "/ota", activePath);
@@ -391,6 +398,49 @@ void WebService::sendOtaPage() {
   endPage();
 }
 
+void WebService::sendMqttPage() {
+  beginPage("MQTT", "/mqtt");
+  server_.sendContent("<div class='grid'><section class='card'><h2>Etat</h2><div class='metrics'>");
+  sendHtmlValue("Service", config_->mqttEnabled() ? "ACTIVE" : "DESACTIVE");
+  sendHtmlValue("Connexion", mqtt_->connected() ? "CONNECTE" : "DECONNECTE");
+  sendHtmlValue("Client ID", mqtt_->clientId());
+  sendHtmlNumber("Derniere erreur", mqtt_->lastError());
+  sendHtmlNumber("Tentatives", mqtt_->connectionAttempts());
+  sendHtmlNumber("Reconnexions", mqtt_->reconnects());
+  sendHtmlNumber("Publications", mqtt_->publications());
+  sendHtmlNumber("Echecs publication", mqtt_->publishFailures());
+  sendHtmlNumber("Messages recus", mqtt_->messagesReceived());
+  server_.sendContent("</div></section></div>");
+  char broker[129], username[81], password[129], root[129];
+  htmlEscape(config_->mqttBroker(), broker, sizeof(broker));
+  htmlEscape(config_->mqttUsername(), username, sizeof(username));
+  htmlEscape(config_->mqttPassword(), password, sizeof(password));
+  htmlEscape(config_->mqttRootTopic(), root, sizeof(root));
+  char form[640];
+  snprintf(form, sizeof(form),
+           "<section class='card'><h2>Configuration</h2><form method='post' action='/api/mqtt'>"
+           "<label><input name='enabled' type='checkbox' value='1' style='width:auto'%s> MQTT active</label>"
+           "<label>Broker hostname/IP<input name='broker' maxlength='63' value='%s'></label>"
+           "<label>Port<input name='port' type='number' min='1' max='65535' value='%u' required></label>",
+           config_->mqttEnabled() ? " checked" : "", broker, config_->mqttPort());
+  server_.sendContent(form);
+  snprintf(form, sizeof(form),
+           "<label>Utilisateur<input name='username' maxlength='39' value='%s'></label>"
+           "<label>Mot de passe<input id='mqttPassword' name='password' type='password' maxlength='63' value='%s'></label>",
+           username, password);
+  server_.sendContent(form);
+  snprintf(form, sizeof(form),
+           "<button type='button' onclick=\"toggleMqttSecret(this)\">Afficher</button>"
+           "<label>Topic racine<input name='root_topic' maxlength='64' value='%s' required></label>"
+           "<p class='muted'>Les topics applicatifs sont relatifs a cette racine. L'interface locale n'est pas authentifiee : le secret MQTT est accessible aux utilisateurs du LAN.</p>"
+           "<button class='primary' type='submit'>Enregistrer</button></form></section>", root);
+  server_.sendContent(form);
+  server_.sendContent("<script>function toggleMqttSecret(b){var e=document.getElementById('mqttPassword');"
+                      "e.type=e.type==='password'?'text':'password';"
+                      "b.textContent=e.type==='password'?'Afficher':'Masquer'}</script>");
+  endPage();
+}
+
 void WebService::sendSystemPage() {
   beginPage("Système", "/system");
   server_.sendContent("<section class='card'><div class='metrics'>");
@@ -452,14 +502,22 @@ void WebService::sendStatus() {
   jsonEscape(currentSsid.c_str(), ssid, sizeof(ssid));
   const String stationIp = wifi_->stationIp();
   const String fallbackIp = wifi_->apIp();
-  char json[704];
+  char mqttBroker[129], mqttRoot[129], mqttClientId[97];
+  jsonEscape(config_->mqttBroker(), mqttBroker, sizeof(mqttBroker));
+  jsonEscape(config_->mqttRootTopic(), mqttRoot, sizeof(mqttRoot));
+  jsonEscape(mqtt_->clientId(), mqttClientId, sizeof(mqttClientId));
+  char json[1088];
   snprintf(json, sizeof(json),
            "{\"firmware\":\"%s\",\"version\":\"%s\",\"device_id\":\"%s\","
            "\"hostname\":\"%s\",\"uptime_ms\":%lu,\"free_heap\":%lu,"
            "\"minimum_heap\":%lu,\"web_heap_before\":%lu,\"web_heap_after\":%lu,"
            "\"wifi_state\":\"%s\",\"wifi_mode\":\"%s\",\"ssid\":\"%s\","
            "\"ip\":\"%s\",\"rssi\":%ld,\"sta_slot\":%d,\"ap_active\":%s,"
-           "\"ap_always_on\":%s,\"ap_ip\":\"%s\"}",
+           "\"ap_always_on\":%s,\"ap_ip\":\"%s\","
+           "\"mqtt_enabled\":%s,\"mqtt_connected\":%s,\"mqtt_broker\":\"%s\","
+           "\"mqtt_port\":%u,\"mqtt_root_topic\":\"%s\",\"mqtt_client_id\":\"%s\","
+           "\"mqtt_last_error\":%d,\"mqtt_attempts\":%lu,\"mqtt_reconnections\":%lu,"
+           "\"mqtt_publications\":%lu,\"mqtt_publish_failures\":%lu,\"mqtt_messages_received\":%lu}",
            projectName_, firmwareVersion_, identity_->id(),
            identity_->hostname(), static_cast<unsigned long>(millis()),
            static_cast<unsigned long>(PlatformCompat::freeHeap()),
@@ -467,7 +525,14 @@ void WebService::sendStatus() {
            static_cast<unsigned long>(heapAfterBegin_), wifi_->stateName(), wifi_->modeName(), ssid,
            stationIp.c_str(), static_cast<long>(wifi_->rssi()), wifi_->connectedSlot() + 1,
            wifi_->apActive() ? "true" : "false",
-           config_->apAlwaysOn() ? "true" : "false", fallbackIp.c_str());
+           config_->apAlwaysOn() ? "true" : "false", fallbackIp.c_str(),
+           config_->mqttEnabled() ? "true" : "false", mqtt_->connected() ? "true" : "false",
+           mqttBroker, config_->mqttPort(), mqttRoot, mqttClientId, mqtt_->lastError(),
+           static_cast<unsigned long>(mqtt_->connectionAttempts()),
+           static_cast<unsigned long>(mqtt_->reconnects()),
+           static_cast<unsigned long>(mqtt_->publications()),
+           static_cast<unsigned long>(mqtt_->publishFailures()),
+           static_cast<unsigned long>(mqtt_->messagesReceived()));
   server_.send(200, "application/json", json);
 }
 
@@ -589,6 +654,30 @@ void WebService::saveApPassword() {
     apPasswordChangePending_ = true;
     apPasswordChangeAt_ = millis() + 750U;
   }
+}
+
+void WebService::saveMqtt() {
+  if (!server_.hasArg("broker") || !server_.hasArg("port") ||
+      !server_.hasArg("username") || !server_.hasArg("password") ||
+      !server_.hasArg("root_topic")) {
+    server_.send(400, "text/plain", "All MQTT fields are required\n");
+    return;
+  }
+  const long port = server_.arg("port").toInt();
+  const bool enabled = server_.hasArg("enabled") && server_.arg("enabled") == "1";
+  if (port < 1 || port > 65535 ||
+      !config_->saveMqtt(enabled, server_.arg("broker").c_str(),
+                         static_cast<uint16_t>(port), server_.arg("username").c_str(),
+                         server_.arg("password").c_str(), server_.arg("root_topic").c_str())) {
+    server_.send(400, "text/plain", "Invalid MQTT configuration\n");
+    return;
+  }
+  mqtt_->configurationChanged();
+  logs_->add("MQTT", "Configuration saved enabled=%s broker=%s port=%u root=%s",
+             enabled ? "yes" : "no", config_->mqttBroker(), config_->mqttPort(),
+             config_->mqttRootTopic());
+  server_.sendHeader("Location", "/mqtt");
+  server_.send(303, "text/plain", "Saved\n");
 }
 
 void WebService::startWifiScan() {

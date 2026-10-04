@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.3.0
+
+- `MqttService` générique optionnel basé sur PubSubClient 2.8.
+- Configuration persistante migrée sans perte depuis 2.2.0 et page `/mqtt`.
+- Topics applicatifs relatifs, publication, quatre souscriptions bornées et
+  réabonnement automatique.
+- Backoff 5/15/30/60 secondes, diagnostic et suspension pendant OTA.
+
 ## 2.2.0
 
 - Wi-Fi V2 : STA1/STA2, failover non bloquant avec settling, scan, saisie
