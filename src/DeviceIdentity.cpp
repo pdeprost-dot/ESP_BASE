@@ -2,7 +2,9 @@
 
 void DeviceIdentity::begin() {
   const uint32_t shortId = static_cast<uint32_t>(PlatformCompat::hardwareId() & 0xFFFFFFUL);
-  snprintf(id_, sizeof(id_), "%s-%06X", PlatformCompat::platformName(), shortId);
-  snprintf(hostname_, sizeof(hostname_), "espbase-%06x", shortId);
+  snprintf(id_, sizeof(id_), "%s-%06X", PlatformCompat::platformName(),
+           static_cast<unsigned int>(shortId));
+  snprintf(hostname_, sizeof(hostname_), "espbase-%06x",
+           static_cast<unsigned int>(shortId));
 }
 

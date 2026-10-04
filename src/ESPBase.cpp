@@ -9,6 +9,15 @@ ESPBase::ESPBase(const char* projectName, const char* firmwareVersion) {
           sizeof(firmwareVersion_));
 }
 
+bool ESPBase::addGetRoute(const char* path, WebRouteHandler handler, void* context) {
+  return webService_.addGetRoute(path, handler, context);
+}
+
+bool ESPBase::addPage(const char* label, const char* path, WebRouteHandler handler,
+                      void* context) {
+  return webService_.addPage(label, path, handler, context);
+}
+
 void ESPBase::begin() {
   Serial.begin(115200);
   Serial.println();

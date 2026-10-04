@@ -22,8 +22,39 @@ void loop() {
 }
 ```
 
-Le constructeur sans argument utilise `ESP_BASE` et `2.0.0`. Les chaînes
+Le constructeur sans argument utilise `ESP_BASE` et `2.1.0`. Les chaînes
 fournies configurent le nom/version visibles dans les logs, la page et l'API.
+
+Un projet personnalisé indique simplement son identité :
+
+```cpp
+ESPBase espBase("Mon Projet", "1.0.0");
+```
+
+Une API métier GET s'ajoute avant `begin()` :
+
+```cpp
+void handleValue(WebResponse& response, void*) {
+  response.sendJson("{\"value\":42}");
+}
+
+espBase.addGetRoute("/api/value", handleValue);
+```
+
+Une page métier bénéficie du shell et de la navbar ESP_BASE :
+
+```cpp
+void handlePage(WebResponse& response, void*) {
+  response.beginPage("Capteur");
+  response.write("<section class='card'>Valeur</section>");
+  response.endPage();
+}
+
+espBase.addPage("Capteur", "/capteur", handlePage);
+```
+
+ESP_BASE prend en charge l'infrastructure ; le projet consommateur conserve
+uniquement sa logique métier.
 
 ## Fonctions actuelles
 
@@ -33,7 +64,9 @@ fournies configurent le nom/version visibles dans les logs, la page et l'API.
 - point d'accès de secours lorsque le STA n'est pas configuré ou joignable ;
 - petit journal circulaire en RAM ;
 - configuration par le moniteur série ou par formulaire Web depuis l'AP ;
-- page de diagnostic et API HTTP en lecture seule.
+- page de diagnostic et API HTTP en lecture seule ;
+- routes GET applicatives bornées via `ESPBase::addGetRoute()` ;
+- shell Web responsive et pages applicatives via `ESPBase::addPage()`.
 
 MQTT, OTA et logique métier sont volontairement absents. ESP32 n'est pas
 encore validé.

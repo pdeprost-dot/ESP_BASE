@@ -26,6 +26,10 @@ ESP_BASE est une bibliothèque Arduino compacte pour ESP8266, destinée ensuite
 `ConfigStore` masque son backend et `PlatformCompat` les API du core.
 `WebService` fournit `/`, `/api/status`, `/api/logs` et le POST de provisioning
 réservé à l'AP. Ne jamais renvoyer ou journaliser un mot de passe.
+Les consommateurs ajoutent au plus quatre routes GET avec
+`ESPBase::addGetRoute()` avant `begin()` ; le serveur natif reste interne.
+`addPage()` partage cette capacité et ajoute une entrée au shell/navbar. Une
+page métier utilise `WebResponse::beginPage()`, `write()` et `endPage()`.
 
 Mettre à jour la documentation lorsqu'un contrat public ou le processus de
 compilation change. Ne stocker aucun identifiant Wi-Fi réel dans Git.

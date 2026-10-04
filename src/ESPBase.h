@@ -16,6 +16,9 @@ class ESPBase {
 
   void begin();
   void loop();
+  bool addGetRoute(const char* path, WebRouteHandler handler, void* context = nullptr);
+  bool addPage(const char* label, const char* path, WebRouteHandler handler,
+               void* context = nullptr);
 
   const char* projectName() const { return projectName_; }
   const char* firmwareVersion() const { return firmwareVersion_; }

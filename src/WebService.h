@@ -15,11 +15,14 @@ using NativeWebServer = WebServer;
 #include "DeviceIdentity.h"
 #include "ConfigStore.h"
 #include "LogService.h"
+#include "WebResponse.h"
 #include "WiFiService.h"
 
 class WebService {
  public:
   WebService();
+  bool addGetRoute(const char* path, WebRouteHandler handler, void* context);
+  bool addPage(const char* label, const char* path, WebRouteHandler handler, void* context);
   void begin(const char* projectName, const char* firmwareVersion,
              const DeviceIdentity& identity, ConfigStore& config,
              WiFiService& wifi, LogService& logs);
@@ -30,10 +33,36 @@ class WebService {
   uint32_t minimumHeap() const { return minimumHeap_; }
 
  private:
+  static constexpr size_t kMaxApplicationRoutes = 4;
+  static constexpr size_t kMaxRoutePathLength = 47;
+  static constexpr size_t kMaxPageLabelLength = 20;
+
+  struct ApplicationRoute {
+    char path[kMaxRoutePathLength + 1]{};
+    char label[kMaxPageLabelLength + 1]{};
+    WebRouteHandler handler = nullptr;
+    void* context = nullptr;
+  };
+
   static void jsonEscape(const char* input, char* output, size_t capacity);
   static void htmlEscape(const char* input, char* output, size_t capacity);
+  static void sendApplicationResponse(void* context, uint16_t statusCode,
+                                      const char* contentType, const char* body);
+  static void beginApplicationPage(void* context, const char* title);
+  static void writeApplicationPage(void* context, const char* html);
+  static void endApplicationPage(void* context);
+  static bool isReservedRoute(const char* path);
+  bool addApplicationRoute(const char* label, const char* path,
+                           WebRouteHandler handler, void* context);
   void registerRoutes();
+  void dispatchApplicationRoute(size_t index);
+  void beginPage(const char* title, const char* activePath);
+  void endPage();
+  void sendNavItem(const char* label, const char* path, const char* activePath);
   void sendHome();
+  void sendWifiPage();
+  void sendLogsPage();
+  void sendSystemPage();
   void sendStatus();
   void sendLogs();
   void saveWiFi();
@@ -50,5 +79,9 @@ class WebService {
   uint32_t heapBeforeBegin_ = 0;
   uint32_t heapAfterBegin_ = 0;
   uint32_t minimumHeap_ = UINT32_MAX;
+  ApplicationRoute applicationRoutes_[kMaxApplicationRoutes];
+  size_t applicationRouteCount_ = 0;
+  bool started_ = false;
+  const char* activeApplicationPath_ = nullptr;
 };
 
