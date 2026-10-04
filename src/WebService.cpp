@@ -30,14 +30,6 @@ const char kShellAfterBrand[] PROGMEM = "</div><nav>";
 const char kShellAfterNav[] PROGMEM = "</nav></div></header><main>";
 const char kShellEnd[] PROGMEM =
     "</main><footer>ESP_BASE &middot; interface locale embarquee</footer></body></html>";
-const char kProvisioningForm[] PROGMEM =
-    "<h2>Configuration Wi-Fi</h2>"
-    "<form method='post' action='/api/wifi'>"
-    "<p><label>SSID<br><input name='ssid' maxlength='32' required></label></p>"
-    "<p><label>Mot de passe<br><input name='password' type='password' "
-    "maxlength='64' autocomplete='new-password'></label></p>"
-    "<p><button type='submit'>Enregistrer et connecter</button></p></form>"
-    "<p class='muted'>Cette interface HTTP est réservée au réseau local de confiance.</p>";
 }  // namespace
 
 WebService::WebService() : server_(80) {}
@@ -72,12 +64,13 @@ bool WebService::addApplicationRoute(const char* label, const char* path,
 
 void WebService::begin(const char* projectName, const char* firmwareVersion,
                        const DeviceIdentity& identity, ConfigStore& config,
-                       WiFiService& wifi, LogService& logs) {
+                       WiFiService& wifi, OtaService& ota, LogService& logs) {
   projectName_ = projectName;
   firmwareVersion_ = firmwareVersion;
   identity_ = &identity;
   config_ = &config;
   wifi_ = &wifi;
+  ota_ = &ota;
   logs_ = &logs;
   heapBeforeBegin_ = PlatformCompat::freeHeap();
   registerRoutes();
@@ -92,18 +85,37 @@ void WebService::begin(const char* projectName, const char* firmwareVersion,
 
 void WebService::tick() {
   server_.handleClient();
+  if (wifiChangePending_ && static_cast<int32_t>(millis() - wifiChangeAt_) >= 0) {
+    wifiChangePending_ = false;
+    wifi_->credentialsChanged();
+  }
+  if (apPasswordChangePending_ &&
+      static_cast<int32_t>(millis() - apPasswordChangeAt_) >= 0) {
+    apPasswordChangePending_ = false;
+    wifi_->apSettingsChanged(apPasswordChangedPending_);
+    apPasswordChangedPending_ = false;
+  }
   const uint32_t current = PlatformCompat::freeHeap();
   if (current < minimumHeap_) minimumHeap_ = current;
 }
 
 void WebService::registerRoutes() {
   server_.on("/", HTTP_GET, [this]() { sendHome(); });
+  server_.on("/setup", HTTP_GET, [this]() { sendSetupPage(); });
   server_.on("/wifi", HTTP_GET, [this]() { sendWifiPage(); });
   server_.on("/logs", HTTP_GET, [this]() { sendLogsPage(); });
+  server_.on("/ota", HTTP_GET, [this]() { sendOtaPage(); });
   server_.on("/system", HTTP_GET, [this]() { sendSystemPage(); });
   server_.on("/api/status", HTTP_GET, [this]() { sendStatus(); });
   server_.on("/api/logs", HTTP_GET, [this]() { sendLogs(); });
   server_.on("/api/wifi", HTTP_POST, [this]() { saveWiFi(); });
+  server_.on("/api/wifi/setup", HTTP_POST, [this]() { saveWifiSetup(); });
+  server_.on("/api/wifi/config", HTTP_POST, [this]() { saveWifiConfig(); });
+  server_.on("/api/wifi/scan", HTTP_POST, [this]() { startWifiScan(); });
+  server_.on("/api/wifi/scan", HTTP_GET, [this]() { sendWifiScan(); });
+  server_.on("/api/ap-password", HTTP_POST, [this]() { saveApPassword(); });
+  server_.on("/api/ota", HTTP_POST, [this]() { finishOtaUpload(); },
+             [this]() { handleOtaUpload(); });
   for (size_t index = 0; index < applicationRouteCount_; ++index) {
     server_.on(applicationRoutes_[index].path, HTTP_GET,
                [this, index]() { dispatchApplicationRoute(index); });
@@ -114,8 +126,13 @@ void WebService::registerRoutes() {
 bool WebService::isReservedRoute(const char* path) {
   return strcmp(path, "/") == 0 || strcmp(path, "/api/status") == 0 ||
          strcmp(path, "/api/logs") == 0 || strcmp(path, "/api/wifi") == 0 ||
+         strcmp(path, "/api/ap-password") == 0 ||
+         strcmp(path, "/api/wifi/config") == 0 || strcmp(path, "/api/wifi/setup") == 0 ||
+         strcmp(path, "/api/wifi/scan") == 0 ||
+         strcmp(path, "/setup") == 0 ||
          strcmp(path, "/wifi") == 0 || strcmp(path, "/logs") == 0 ||
-         strcmp(path, "/system") == 0;
+         strcmp(path, "/ota") == 0 || strcmp(path, "/system") == 0 ||
+         strcmp(path, "/api/ota") == 0;
 }
 
 void WebService::sendApplicationResponse(void* context, uint16_t statusCode,
@@ -188,7 +205,9 @@ void WebService::beginPage(const char* title, const char* activePath) {
     }
   }
   sendNavItem("Wi-Fi", "/wifi", activePath);
+  if (wifi_->apActive()) sendNavItem("Provisioning", "/setup", activePath);
   sendNavItem("Logs", "/logs", activePath);
+  if (ota_->enabled()) sendNavItem("OTA", "/ota", activePath);
   sendNavItem("Système", "/system", activePath);
   server_.sendContent_P(kShellAfterNav);
   char escapedTitle[67];
@@ -228,7 +247,8 @@ void WebService::sendHome() {
 
 void WebService::sendWifiPage() {
   beginPage("Wi-Fi", "/wifi");
-  server_.sendContent("<section class='card'><div class='metrics'>");
+  server_.sendContent("<div class='grid'><section class='card'><h2>État réseau</h2>"
+                      "<div class='metrics'>");
   sendHtmlValue("État", wifi_->stateName());
   const String ssid = wifi_->currentSsid();
   sendHtmlValue("SSID", ssid.length() ? ssid.c_str() : "-");
@@ -238,15 +258,102 @@ void WebService::sendWifiPage() {
   sendHtmlNumber("RSSI", wifi_->rssi(), " dBm");
   sendHtmlValue("Hostname", identity_->hostname());
   sendHtmlValue("Mode", wifi_->modeName());
-  server_.sendContent("</div></section>");
-  if (wifi_->apActive()) {
-    server_.sendContent_P(kProvisioningForm);
-  } else {
-    server_.sendContent("<p class='muted'>La reconfiguration est volontairement indisponible "
-                        "depuis le STA. Utilisez la commande Serial CLEAR pour revenir au mode "
-                        "de provisioning sécurisé.</p>");
+  sendHtmlNumber("STA actif", wifi_->connectedSlot() >= 0 ? wifi_->connectedSlot() + 1 : 0);
+  server_.sendContent("</div></section></div>");
+
+  {
+    char ssid1[67], pass1[129], ssid2[67], pass2[129], apPass[129];
+    htmlEscape(config_->ssid(0), ssid1, sizeof(ssid1));
+    htmlEscape(config_->password(0), pass1, sizeof(pass1));
+    htmlEscape(config_->ssid(1), ssid2, sizeof(ssid2));
+    htmlEscape(config_->password(1), pass2, sizeof(pass2));
+    htmlEscape(config_->apPassword(), apPass, sizeof(apPass));
+    char form[1280];
+    snprintf(form, sizeof(form),
+             "<form method='post' action='/api/wifi/config'><div class='grid'>"
+             "<section class='card'><h2>Réseau principal — STA1</h2>"
+             "<label>SSID<input id='sta1' name='sta1_ssid' maxlength='32' value='%s' required></label>"
+             "<label>Mot de passe<input id='p1' name='sta1_password' type='password' maxlength='63' value='%s'></label>"
+             "<button type='button' onclick=\"toggleSecret('p1',this)\">Afficher</button></section>"
+             "<section class='card'><h2>Réseau secondaire — STA2</h2>"
+             "<label>SSID<input id='sta2' name='sta2_ssid' maxlength='32' value='%s'></label>"
+             "<label>Mot de passe<input id='p2' name='sta2_password' type='password' maxlength='63' value='%s'></label>"
+             "<button type='button' onclick=\"toggleSecret('p2',this)\">Afficher</button></section></div>"
+             "<section class='card'><button class='primary' type='submit'>Enregistrer STA1 et STA2</button></section></form>",
+             ssid1, pass1, ssid2, pass2);
+    server_.sendContent(form);
+    server_.sendContent("<section class='card'><h2>Point d'accès ESP_BASE</h2>"
+                        "<div class='metrics'>");
+    sendHtmlValue("État AP", wifi_->apActive() ? "ACTIF" : "INACTIF");
+    sendHtmlValue("SSID AP", wifi_->apSsid());
+    sendHtmlValue("Adresse IP AP", fallbackIp.length() ? fallbackIp.c_str() : "-");
+    sendHtmlValue("Mode AP permanent", config_->apAlwaysOn() ? "ACTIVÉ" : "DÉSACTIVÉ");
+    server_.sendContent("</div><form method='post' action='/api/ap-password'>");
+    snprintf(form, sizeof(form),
+             "<label>Mot de passe AP<input id='pap' name='ap_password' type='password' "
+             "minlength='8' maxlength='63' value='%s' required></label>"
+             "<button type='button' onclick=\"toggleSecret('pap',this)\">Afficher</button>"
+             "<p class='muted'>SSID automatique propre à l'appareil. "
+             "Mot de passe usine : ESPbaseSetup.</p>"
+             "<label><input name='ap_always_on' type='checkbox' value='1' style='width:auto'%s> "
+             "Maintenir le point d'accès actif même lorsqu'un réseau LAN est connecté</label>"
+             "<p class='muted'>Désactivé : l'AP s'active automatiquement uniquement si STA1 et STA2 "
+             "sont indisponibles.<br>Activé : l'AP reste accessible même lorsqu'un STA est connecté.</p>"
+             "<button class='primary' type='submit'>Enregistrer l'AP</button> "
+             "<button name='reset' value='1' type='submit' formnovalidate>Rétablir le mot de passe AP par défaut</button>"
+             "</form></section>", apPass, config_->apAlwaysOn() ? " checked" : "");
+    server_.sendContent(form);
   }
+
+  sendScanPanel();
   endPage();
+}
+
+void WebService::sendSetupPage() {
+  if (!wifi_->apActive()) {
+    server_.send(409, "text/plain", "Provisioning is available only from the fallback AP\n");
+    return;
+  }
+  beginPage("Provisioning Wi-Fi", "/setup");
+  server_.sendContent("<section class='card'><p>Configurez un réseau principal et, si souhaité, "
+                      "un réseau de secours. Aucun credential existant n'est affiché ici.</p></section>");
+  sendWifiForm();
+  sendScanPanel();
+  endPage();
+}
+
+void WebService::sendScanPanel() {
+  server_.sendContent("<section class='card'><h2>Réseaux disponibles</h2>"
+                      "<button type='button' onclick='startScan()'>Rechercher les réseaux</button>"
+                      "<div id='scan' class='metrics'><span>Scan</span><b>non lancé</b></div></section>"
+                      "<script>function toggleSecret(id,b){var e=document.getElementById(id);"
+                      "e.type=e.type==='password'?'text':'password';b.textContent=e.type==='password'?'Afficher':'Masquer'}"
+                      "function useSsid(id,s){var e=document.getElementById(id);if(e)e.value=s}"
+                      "function showScan(j){var d=document.getElementById('scan');d.innerHTML='';"
+                      "if(j.state==='RUNNING'){d.textContent='Scan en cours…';setTimeout(loadScan,600);return}"
+                      "j.networks.forEach(function(n){var t=document.createElement('span');"
+                      "t.textContent=n.ssid+' · '+n.rssi+' dBm · '+(n.encrypted?'sécurisé':'ouvert');"
+                      "var b=document.createElement('b'),a=document.createElement('button'),c=document.createElement('button');"
+                      "a.textContent='STA1';c.textContent='STA2';a.onclick=function(){useSsid('sta1',n.ssid)};"
+                      "c.onclick=function(){useSsid('sta2',n.ssid)};b.append(a,c);d.append(t,b)})}"
+                      "function loadScan(){fetch('/api/wifi/scan').then(r=>r.json()).then(showScan)}"
+                      "function startScan(){fetch('/api/wifi/scan',{method:'POST'}).then(loadScan)}</script>");
+}
+
+void WebService::sendWifiForm() {
+  server_.sendContent(
+      "<form method='post' action='/api/wifi/setup'><div class='grid'>"
+      "<section class='card'><h2>Réseau principal — STA1</h2>"
+      "<label>SSID<input id='sta1' name='sta1_ssid' maxlength='32' required></label>"
+      "<label>Mot de passe<input id='p1' name='sta1_password' type='password' maxlength='63'></label>"
+      "<button type='button' onclick=\"toggleSecret('p1',this)\">Afficher</button></section>"
+      "<section class='card'><h2>Réseau secondaire — STA2</h2>"
+      "<label>SSID<input id='sta2' name='sta2_ssid' maxlength='32'></label>"
+      "<label>Mot de passe<input id='p2' name='sta2_password' type='password' maxlength='63'></label>"
+      "<button type='button' onclick=\"toggleSecret('p2',this)\">Afficher</button></section></div>"
+      "<section class='card'><p class='muted'>Les SSID restent librement éditables pour les "
+      "réseaux masqués ou absents du scan. Laisser STA2 entièrement vide pour le désactiver.</p>"
+      "<button class='primary' type='submit'>Enregistrer et connecter</button></section></form>");
 }
 
 void WebService::sendLogsPage() {
@@ -262,6 +369,28 @@ void WebService::sendLogsPage() {
   endPage();
 }
 
+void WebService::sendOtaPage() {
+  beginPage("Mise à jour OTA", "/ota");
+  server_.sendContent("<section class='card'><div class='metrics'>");
+  sendHtmlValue("Firmware", firmwareVersion_);
+  sendHtmlValue("Device ID", identity_->id());
+  sendHtmlValue("ArduinoOTA", wifi_->connected() ? "PRÊT SUR LE LAN" : "INDISPONIBLE");
+  server_.sendContent(
+      "</div><h2>Firmware Web OTA</h2><p class='muted'>Sélectionnez uniquement un fichier "
+      ".bin compilé pour cette carte. La configuration Wi-Fi est conservée.</p>"
+      "<form id='otaForm' enctype='multipart/form-data'><input name='firmware' type='file' "
+      "accept='.bin' required><p><button class='primary'>Installer</button></p>"
+      "<progress id='otaProgress' max='100' value='0' style='width:100%'></progress> "
+      "<span id='otaResult'></span></form></section>"
+      "<script>otaForm.onsubmit=function(e){e.preventDefault();var x=new XMLHttpRequest(),"
+      "f=new FormData(otaForm);x.open('POST','/api/ota');x.upload.onprogress=function(p){"
+      "if(p.lengthComputable)otaProgress.value=p.loaded*100/p.total};x.onload=function(){"
+      "otaResult.textContent=x.status===200?'Mise à jour réussie, redémarrage…':"
+      "'Échec: '+x.responseText};x.onerror=function(){otaResult.textContent="
+      "'Connexion interrompue'};x.send(f)};</script>");
+  endPage();
+}
+
 void WebService::sendSystemPage() {
   beginPage("Système", "/system");
   server_.sendContent("<section class='card'><div class='metrics'>");
@@ -274,6 +403,7 @@ void WebService::sendSystemPage() {
   sendHtmlNumber("Heap minimum", minimumHeap_, " octets");
   sendHtmlNumber("Heap avant Web", heapBeforeBegin_, " octets");
   sendHtmlNumber("Heap après Web", heapAfterBegin_, " octets");
+  sendHtmlNumber("Heap minimum OTA", ota_->minimumHeap(), " octets");
   server_.sendContent("</div><p><a href='/api/status'>Diagnostic JSON</a></p></section>");
   endPage();
 }
@@ -322,20 +452,22 @@ void WebService::sendStatus() {
   jsonEscape(currentSsid.c_str(), ssid, sizeof(ssid));
   const String stationIp = wifi_->stationIp();
   const String fallbackIp = wifi_->apIp();
-  char json[640];
+  char json[704];
   snprintf(json, sizeof(json),
            "{\"firmware\":\"%s\",\"version\":\"%s\",\"device_id\":\"%s\","
            "\"hostname\":\"%s\",\"uptime_ms\":%lu,\"free_heap\":%lu,"
            "\"minimum_heap\":%lu,\"web_heap_before\":%lu,\"web_heap_after\":%lu,"
            "\"wifi_state\":\"%s\",\"wifi_mode\":\"%s\",\"ssid\":\"%s\","
-           "\"ip\":\"%s\",\"rssi\":%ld,\"ap_active\":%s,\"ap_ip\":\"%s\"}",
+           "\"ip\":\"%s\",\"rssi\":%ld,\"sta_slot\":%d,\"ap_active\":%s,"
+           "\"ap_always_on\":%s,\"ap_ip\":\"%s\"}",
            projectName_, firmwareVersion_, identity_->id(),
            identity_->hostname(), static_cast<unsigned long>(millis()),
            static_cast<unsigned long>(PlatformCompat::freeHeap()),
            static_cast<unsigned long>(minimumHeap_), static_cast<unsigned long>(heapBeforeBegin_),
            static_cast<unsigned long>(heapAfterBegin_), wifi_->stateName(), wifi_->modeName(), ssid,
-           stationIp.c_str(), static_cast<long>(wifi_->rssi()),
-           wifi_->apActive() ? "true" : "false", fallbackIp.c_str());
+           stationIp.c_str(), static_cast<long>(wifi_->rssi()), wifi_->connectedSlot() + 1,
+           wifi_->apActive() ? "true" : "false",
+           config_->apAlwaysOn() ? "true" : "false", fallbackIp.c_str());
   server_.send(200, "application/json", json);
 }
 
@@ -350,16 +482,24 @@ void WebService::sendLogs() {
 }
 
 void WebService::saveWiFi() {
-  if (!wifi_->apActive()) {
-    server_.send(403, "text/plain", "Wi-Fi provisioning is available from fallback AP only\n");
-    return;
-  }
   if (!server_.hasArg("ssid") || !server_.hasArg("password")) {
     server_.send(400, "text/plain", "SSID and password are required\n");
     return;
   }
   const String ssid = server_.arg("ssid");
-  const String password = server_.arg("password");
+  String password = server_.arg("password");
+  const bool openNetwork = server_.hasArg("open_network") &&
+                           server_.arg("open_network") == "1";
+  if (openNetwork) {
+    password = "";
+  } else if (password.length() == 0) {
+    if (!config_->configured() || ssid != config_->ssid()) {
+      server_.send(400, "text/plain",
+                   "Password required for a new SSID, or select open network\n");
+      return;
+    }
+    password = config_->password();
+  }
   if (!config_->saveWiFi(ssid.c_str(), password.c_str())) {
     server_.send(400, "text/plain", "Invalid Wi-Fi configuration\n");
     return;
@@ -368,6 +508,146 @@ void WebService::saveWiFi() {
                "<!doctype html><meta charset='utf-8'><title>ESP_BASE</title>"
                "<p>Configuration enregistrée. Connexion en cours.</p>");
   logs_->add("CONFIG", "Wi-Fi configuration saved from Web for SSID %s", ssid.c_str());
-  wifi_->credentialsChanged();
+  wifiChangePending_ = true;
+  wifiChangeAt_ = millis() + 750U;
+}
+
+void WebService::saveWifiConfig() {
+  if (!server_.hasArg("sta1_ssid") || !server_.hasArg("sta1_password") ||
+      !server_.hasArg("sta2_ssid") || !server_.hasArg("sta2_password")) {
+    server_.send(400, "text/plain", "All station fields are required\n");
+    return;
+  }
+  if (!config_->saveStations(server_.arg("sta1_ssid").c_str(),
+                             server_.arg("sta1_password").c_str(),
+                             server_.arg("sta2_ssid").c_str(),
+                             server_.arg("sta2_password").c_str())) {
+    server_.send(400, "text/plain", "Invalid STA1/STA2 configuration\n");
+    return;
+  }
+  server_.send(200, "text/html; charset=utf-8",
+               "<!doctype html><meta charset='utf-8'><title>ESP_BASE</title>"
+               "<p>STA1 et STA2 enregistrés. Reconnexion en cours.</p>");
+  logs_->add("CONFIG", "STA1/STA2 configuration saved from Web UI");
+  wifiChangePending_ = true;
+  wifiChangeAt_ = millis() + 750U;
+}
+
+void WebService::saveWifiSetup() {
+  if (!wifi_->apActive()) {
+    server_.send(403, "text/plain", "Provisioning is available only from the fallback AP\n");
+    return;
+  }
+  if (!server_.hasArg("sta1_ssid") || !server_.hasArg("sta1_password") ||
+      !server_.hasArg("sta2_ssid") || !server_.hasArg("sta2_password")) {
+    server_.send(400, "text/plain", "All station fields are required\n");
+    return;
+  }
+  if (!config_->saveStations(server_.arg("sta1_ssid").c_str(),
+                             server_.arg("sta1_password").c_str(),
+                             server_.arg("sta2_ssid").c_str(),
+                             server_.arg("sta2_password").c_str())) {
+    server_.send(400, "text/plain", "Invalid STA1/STA2 configuration\n");
+    return;
+  }
+  server_.send(200, "text/html; charset=utf-8",
+               "<!doctype html><meta charset='utf-8'><title>ESP_BASE</title>"
+               "<p>STA1 et STA2 enregistrés. Connexion en cours.</p>");
+  logs_->add("CONFIG", "STA1/STA2 configuration saved from fallback provisioning");
+  wifiChangePending_ = true;
+  wifiChangeAt_ = millis() + 750U;
+}
+
+void WebService::saveApPassword() {
+  const bool reset = server_.hasArg("reset") && server_.arg("reset") == "1";
+  if (!reset && !server_.hasArg("ap_password")) {
+    server_.send(400, "text/plain", "AP password is required\n");
+    return;
+  }
+  const bool alwaysOn = server_.hasArg("ap_always_on") && server_.arg("ap_always_on") == "1";
+  const String candidate = reset ? String(ConfigStore::defaultApPassword())
+                                 : server_.arg("ap_password");
+  const bool passwordChanged = candidate != config_->apPassword();
+  const bool alwaysOnChanged = alwaysOn != config_->apAlwaysOn();
+  const bool saved = config_->saveApSettings(candidate.c_str(), alwaysOn);
+  if (!saved) {
+    server_.send(400, "text/plain", "Invalid AP password (8-63 printable ASCII characters)\n");
+    return;
+  }
+  server_.send(200, "text/html; charset=utf-8",
+               "<!doctype html><meta charset='utf-8'><title>ESP_BASE</title>"
+               "<p>Configuration AP enregistrée.</p>");
+  if (passwordChanged) {
+    logs_->add("CONFIG", reset ? "AP password restored to default"
+                                : "AP password changed");
+  }
+  if (alwaysOnChanged) {
+    logs_->add("CONFIG", alwaysOn ? "AP always-on enabled" : "AP always-on disabled");
+  }
+  if (passwordChanged || alwaysOnChanged) {
+    apPasswordChangedPending_ = apPasswordChangedPending_ || passwordChanged;
+    apPasswordChangePending_ = true;
+    apPasswordChangeAt_ = millis() + 750U;
+  }
+}
+
+void WebService::startWifiScan() {
+  if (!wifi_->startScan()) {
+    server_.send(409, "application/json", "{\"started\":false}");
+    return;
+  }
+  server_.send(202, "application/json", "{\"started\":true}");
+}
+
+void WebService::sendWifiScan() {
+  server_.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server_.send(200, "application/json", "");
+  char header[48];
+  snprintf(header, sizeof(header), "{\"state\":\"%s\",\"networks\":[",
+           wifi_->scanStateName());
+  server_.sendContent(header);
+  for (size_t index = 0; index < wifi_->scanCount(); ++index) {
+    const WiFiService::ScanResult& result = wifi_->scanResult(index);
+    char escaped[67];
+    jsonEscape(result.ssid, escaped, sizeof(escaped));
+    char item[128];
+    snprintf(item, sizeof(item), "%s{\"ssid\":\"%s\",\"rssi\":%ld,\"encrypted\":%s}",
+             index ? "," : "", escaped, static_cast<long>(result.rssi),
+             result.encrypted ? "true" : "false");
+    server_.sendContent(item);
+  }
+  server_.sendContent("]}");
+  server_.sendContent("");
+}
+
+void WebService::handleOtaUpload() {
+  HTTPUpload& upload = server_.upload();
+  if (upload.status == UPLOAD_FILE_START) {
+    otaUploadAuthorized_ = wifi_->connected();
+    otaUploadSuccess_ = otaUploadAuthorized_ && ota_->beginWebUpdate();
+  } else if (upload.status == UPLOAD_FILE_WRITE) {
+    if (otaUploadSuccess_) otaUploadSuccess_ = ota_->writeWebUpdate(upload.buf, upload.currentSize);
+  } else if (upload.status == UPLOAD_FILE_END) {
+    if (otaUploadSuccess_) otaUploadSuccess_ = ota_->endWebUpdate();
+  } else if (upload.status == UPLOAD_FILE_ABORTED) {
+    ota_->abortWebUpdate();
+    otaUploadSuccess_ = false;
+  }
+  yield();
+}
+
+void WebService::finishOtaUpload() {
+  if (!otaUploadAuthorized_) {
+    if (!wifi_->connected()) {
+      server_.send(409, "text/plain", "OTA requires a connected STA network\n");
+    } else server_.send(403, "text/plain", "OTA upload unavailable\n");
+    return;
+  }
+  if (!otaUploadSuccess_) {
+    server_.send(500, "text/plain", "Firmware update failed\n");
+    return;
+  }
+  server_.send(200, "text/plain", "Firmware updated; restarting\n");
+  ota_->scheduleRestart();
 }
 

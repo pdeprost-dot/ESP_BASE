@@ -13,7 +13,7 @@ ESP_BASE est une bibliothèque Arduino compacte pour ESP8266, destinée ensuite
 - Préférer les buffers de taille fixe ; éviter les allocations répétées et les
   gros objets `String`, particulièrement sur ESP8266.
 - Ne jamais journaliser de secret.
-- Web/API font partie du socle standard. Ne pas ajouter MQTT, OTA ou une
+- Web/API et OTA font partie du socle 2.2. Ne pas ajouter MQTT ou une
   dépendance sans besoin explicite.
 - Compiler d'abord `examples/Minimal` avec `--library .` pour
   `esp8266:esp8266:nodemcuv2` après chaque changement.
@@ -22,10 +22,13 @@ ESP_BASE est une bibliothèque Arduino compacte pour ESP8266, destinée ensuite
 ## Organisation
 
 `ESPBase` orchestre `DeviceIdentity`, `ConfigStore`, `LogService`,
-`WiFiService` et `WebService`. Le sketch inclut seulement `<ESPBase.h>`.
+`WiFiService`, `WebService` et `OtaService`. Le sketch inclut seulement `<ESPBase.h>`.
 `ConfigStore` masque son backend et `PlatformCompat` les API du core.
-`WebService` fournit `/`, `/api/status`, `/api/logs` et le POST de provisioning
-réservé à l'AP. Ne jamais renvoyer ou journaliser un mot de passe.
+`WebService` fournit le diagnostic, l'administration Wi-Fi et Web OTA. Le mot
+de passe AP par défaut public est `ESPbaseSetup`; sa personnalisation est
+persistante. La version 2.2.0 n'emploie aucune authentification applicative ; OTA
+reste limitée au LAN de confiance. Ne jamais renvoyer ou journaliser un mot de
+passe.
 Les consommateurs ajoutent au plus quatre routes GET avec
 `ESPBase::addGetRoute()` avant `begin()` ; le serveur natif reste interne.
 `addPage()` partage cette capacité et ajoute une entrée au shell/navbar. Une

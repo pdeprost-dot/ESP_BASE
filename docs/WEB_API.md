@@ -6,10 +6,16 @@ Il est démarré automatiquement par `ESPBase::begin()` et servi par
 
 | Méthode | Route | Fonction |
 |---|---|---|
-| `GET` | `/` | diagnostic léger ; formulaire Wi-Fi lorsque l'AP est actif |
+| `GET` | `/` | diagnostic léger |
+| `GET` | `/wifi` | administration STA1/STA2, scan et paramètres AP |
+| `GET` | `/setup` | provisioning de récupération lorsque l'AP est actif |
 | `GET` | `/api/status` | état JSON du firmware, Wi-Fi et de la mémoire |
 | `GET` | `/api/logs` | journal circulaire en texte UTF-8 |
-| `POST` | `/api/wifi` | enregistrement SSID/mot de passe, uniquement en mode AP |
+| `POST` | `/api/wifi/config` | enregistrement STA1/STA2 |
+| `GET/POST` | `/api/wifi/scan` | résultat/démarrage du scan asynchrone |
+| `POST` | `/api/ap-password` | paramètres et mot de passe AP |
+| `GET` | `/ota` | page Web OTA |
+| `POST` | `/api/ota` | installation d'un firmware `.bin` sur le LAN STA |
 
 ## Routes applicatives
 
@@ -30,12 +36,13 @@ Le callback peut recevoir un contexte utilisateur et répondre avec
 `sendJson()` ou `sendText()`. L'enregistrement retourne `false` pour un chemin
 invalide ou dupliqué, une capacité dépassée, un appel après `begin()`, ou les
 routes réservées `/`, `/wifi`, `/logs`, `/system`, `/api/status`, `/api/logs`
-et `/api/wifi`. Le serveur natif ESP8266/ESP32 n'est jamais exposé.
+`/api/wifi`, `/api/ap-password`, `/ota` et `/api/ota`. Le serveur natif
+ESP8266/ESP32 n'est jamais exposé.
 
-Les limites volontaires de 2.1.0 sont : GET uniquement, quatre routes/pages
+Les limites des routes applicatives restent : GET uniquement, quatre routes/pages
 applicatives, libellés de 20 caractères, chemins de 47 caractères, fragments
 HTML applicatifs et aucun accès public aux paramètres HTTP. ESP32 est validé
-par compilation uniquement. OTA, MQTT, WebSocket et SSE ne sont pas inclus.
+par compilation uniquement. MQTT, WebSocket et SSE ne sont pas inclus.
 
 Une route visible dans la navigation utilise la même capacité avec :
 
@@ -59,28 +66,48 @@ caractères maximum.
 | Route | Fonction |
 |---|---|
 | `/` | accueil et état général |
-| `/wifi` | état réseau et provisioning uniquement lorsque l'AP est actif |
+| `/wifi` | état réseau, STA1/STA2, scan et configuration AP |
+| `/setup` | provisioning de récupération via l'AP |
 | `/logs` | journal circulaire lisible en HTML |
+| `/ota` | mise à jour firmware `.bin` avec progression |
 | `/system` | identité et diagnostic mémoire |
 
 La navbar est générée par ESP_BASE dans l'ordre : Accueil, pages applicatives,
-Wi-Fi, Logs, Système.
+Wi-Fi, Provisioning lorsque pertinent, Logs, OTA, Système.
 
 Le status expose notamment version, identité, uptime, heap courant/minimum,
 heap avant/après démarrage Web, état/mode Wi-Fi, SSID, IP, RSSI et état AP.
-Le mot de passe Wi-Fi n'est jamais renvoyé ni journalisé. Le scan Wi-Fi est
-reporté : il n'est pas nécessaire au fonctionnement et demanderait une machine
-d'état supplémentaire.
+Le mot de passe Wi-Fi n'est jamais renvoyé par l'API ni journalisé. Le scan
+Wi-Fi est asynchrone et ne conditionne pas le fonctionnement.
 
 ## Provisioning
 
-Sans configuration valide, se connecter à l'AP `<hostname>-setup`, puis ouvrir
+Sans configuration valide, rechercher l'AP `<hostname>-setup`, se connecter
+avec le mot de passe usine public `ESPbaseSetup`, puis ouvrir
 `http://192.168.4.1/`. Après enregistrement, l'ESP tente le STA et arrête l'AP
-une fois connecté. Le provisioning Serial reste disponible.
+une fois connecté. Le provisioning Serial reste disponible mais n'est pas
+nécessaire à cette procédure.
+
+La section « Point d'accès ESP_BASE » permet au propriétaire de définir un
+mot de passe AP personnalisé de 8 à 63 caractères ASCII ou de restaurer
+explicitement `ESPbaseSetup`, ainsi que d'activer le mode AP permanent. Les
+secrets Wi-Fi ne sont jamais exposés par l'API ni les logs.
+
+## OTA
+
+`OtaService` fournit ArduinoOTA et l'installation Web d'un binaire applicatif.
+Les deux mécanismes exigent une connexion STA. Pendant une écriture OTA,
+`ESPBase` suspend les transitions volontaires de `WiFiService`, tout en laissant
+la boucle applicative progresser. Une OTA réussie redémarre l'appareil sans
+effacer la configuration persistante.
+
+La page `/ota` affiche la progression de l'upload navigateur. ArduinoOTA utilise
+le hostname ESP_BASE et journalise début, progression bornée, fin et erreurs.
 
 ## Limites de sécurité
 
-HTTP n'est ni chiffré ni authentifié. Le diagnostic est destiné à un LAN de
-confiance et le formulaire au seul AP de secours. Le POST Wi-Fi est refusé en
-mode STA. Ne pas exposer le port 80 à Internet. Reboot, effacement Web, OTA et
-commandes arbitraires ne sont pas implémentés.
+La version 2.2.0 ne comporte volontairement aucune authentification
+applicative : ni HTTP Basic, ni mot de passe Web OTA, ni mot de passe
+ArduinoOTA. Ces fonctions doivent rester strictement sur un LAN de confiance et
+ne doivent pas être exposées à Internet. Les mots de passe conservés sont
+uniquement ceux de STA1, STA2 et de l'AP ESP_BASE.

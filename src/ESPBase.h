@@ -5,6 +5,7 @@
 #include "ConfigStore.h"
 #include "DeviceIdentity.h"
 #include "LogService.h"
+#include "OtaService.h"
 #include "Version.h"
 #include "WebService.h"
 #include "WiFiService.h"
@@ -37,6 +38,7 @@ class ESPBase {
   LogService logService_;
   ConfigStore configStore_;
   WiFiService wifiService_;
+  OtaService otaService_;
   WebService webService_;
   char commandBuffer_[128]{};
   size_t commandLength_ = 0;

@@ -29,14 +29,16 @@ void ESPBase::begin() {
   logService_.add("SYSTEM", "free_heap=%lu",
                   static_cast<unsigned long>(PlatformCompat::freeHeap()));
   wifiService_.begin(deviceIdentity_.hostname(), configStore_, logService_);
+  otaService_.begin(deviceIdentity_.hostname(), nullptr, logService_);
   webService_.begin(projectName_, firmwareVersion_, deviceIdentity_, configStore_,
-                    wifiService_, logService_);
+                    wifiService_, otaService_, logService_);
   printHelp();
 }
 
 void ESPBase::loop() {
   tickSerial();
-  wifiService_.tick();
+  if (!otaService_.busy()) wifiService_.tick();
+  otaService_.tick(wifiService_.connected());
   webService_.tick();
   yield();
 }
@@ -52,6 +54,9 @@ void ESPBase::printStatus() {
   Serial.print(F("wifi_state=")); Serial.println(wifiService_.stateName());
   Serial.print(F("sta_configured="));
   Serial.println(configStore_.configured() ? F("yes") : F("no"));
+  Serial.print(F("sta2_configured="));
+  Serial.println(configStore_.configured(1) ? F("yes") : F("no"));
+  Serial.print(F("connected_slot=")); Serial.println(wifiService_.connectedSlot() + 1);
   Serial.print(F("sta_ip=")); Serial.println(wifiService_.stationIp());
   Serial.print(F("ap_active=")); Serial.println(wifiService_.apActive() ? F("yes") : F("no"));
   if (wifiService_.apActive()) {
