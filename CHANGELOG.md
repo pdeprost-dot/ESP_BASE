@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.4.0
+
+- Vue publique `WebRequest` pour lire les arguments GET applicatifs.
+- Surcharges compatibles de `addGetRoute()` et `addPage()`.
+- `addPostRoute()` pour les formulaires POST applicatifs classiques.
+
 ## 2.3.0
 
 - `MqttService` générique optionnel basé sur PubSubClient 2.8.

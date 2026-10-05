@@ -24,8 +24,13 @@ Il est démarré automatiquement par `ESPBase::begin()` et servi par
 Une application peut enregistrer avant `begin()` jusqu'à quatre routes GET :
 
 ```cpp
-void handleValue(WebResponse& response, void* context) {
-  response.sendJson("{\"value\":42}");
+void handleValue(WebRequest& request, WebResponse& response, void* context) {
+  if (!request.hasArg("value")) {
+    response.sendText("missing", 400);
+    return;
+  }
+  const String value = request.arg("value");
+  response.sendText(value.c_str());
 }
 
 void setup() {
@@ -33,6 +38,11 @@ void setup() {
   espBase.begin();
 }
 ```
+
+`WebRequest` est une vue valide uniquement pendant le callback. `hasArg()`
+teste la présence d'un argument GET et `arg()` retourne un `String` autonome,
+déjà URL-décodé par la pile HTTP. L'ancien callback
+`handler(WebResponse&, void*)` reste accepté pour compatibilité 2.3.0.
 
 Le callback peut recevoir un contexte utilisateur et répondre avec
 `sendJson()` ou `sendText()`. L'enregistrement retourne `false` pour un chemin
@@ -63,6 +73,28 @@ Le shell commun fournit le document HTML, le CSS responsive, le header, la
 navigation et le pied de page. La capacité partagée reste de quatre routes ou
 pages applicatives, avec des libellés de 20 caractères et chemins de 47
 caractères maximum.
+
+## Routes POST applicatives
+
+Un formulaire POST classique peut être traité sans accès au serveur natif :
+
+```cpp
+void saveTime(WebRequest& request, WebResponse& response, void*) {
+  if (!request.hasArg("server") || !request.hasArg("timezone")) {
+    response.sendText("missing", 400);
+    return;
+  }
+  const String server = request.arg("server");
+  const String timezone = request.arg("timezone");
+  response.sendText("Saved");
+}
+
+espBase.addPostRoute("/time/save", saveTime);
+```
+
+Cette route est enregistrée exclusivement pour HTTP POST. Un GET sur le même
+chemin n'est pas traité. JSON brut, multipart et upload applicatif ne font pas
+partie de ce contrat.
 
 ## Pages système
 

@@ -21,7 +21,12 @@ class ESPBase {
   void begin();
   void loop();
   bool addGetRoute(const char* path, WebRouteHandler handler, void* context = nullptr);
+  bool addGetRoute(const char* path, WebRequestRouteHandler handler, void* context = nullptr);
+  bool addPostRoute(const char* path, WebRequestRouteHandler handler,
+                    void* context = nullptr);
   bool addPage(const char* label, const char* path, WebRouteHandler handler,
+               void* context = nullptr);
+  bool addPage(const char* label, const char* path, WebRequestRouteHandler handler,
                void* context = nullptr);
 
   const char* projectName() const { return projectName_; }

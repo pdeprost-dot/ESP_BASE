@@ -35,18 +35,37 @@ const char kShellEnd[] PROGMEM =
 WebService::WebService() : server_(80) {}
 
 bool WebService::addGetRoute(const char* path, WebRouteHandler handler, void* context) {
-  return addApplicationRoute(nullptr, path, handler, context);
+  return addApplicationRoute(nullptr, path, handler, nullptr, context, false);
+}
+
+bool WebService::addGetRoute(const char* path, WebRequestRouteHandler handler,
+                             void* context) {
+  return addApplicationRoute(nullptr, path, nullptr, handler, context, false);
+}
+
+bool WebService::addPostRoute(const char* path, WebRequestRouteHandler handler,
+                              void* context) {
+  return addApplicationRoute(nullptr, path, nullptr, handler, context, true);
 }
 
 bool WebService::addPage(const char* label, const char* path,
                          WebRouteHandler handler, void* context) {
   if (!label || label[0] == '\0' || strlen(label) > kMaxPageLabelLength) return false;
-  return addApplicationRoute(label, path, handler, context);
+  return addApplicationRoute(label, path, handler, nullptr, context, false);
+}
+
+bool WebService::addPage(const char* label, const char* path,
+                         WebRequestRouteHandler handler, void* context) {
+  if (!label || label[0] == '\0' || strlen(label) > kMaxPageLabelLength) return false;
+  return addApplicationRoute(label, path, nullptr, handler, context, false);
 }
 
 bool WebService::addApplicationRoute(const char* label, const char* path,
-                                     WebRouteHandler handler, void* context) {
-  if (started_ || !path || path[0] != '/' || path[1] == '\0' || !handler ||
+                                     WebRouteHandler legacyHandler,
+                                     WebRequestRouteHandler requestHandler, void* context,
+                                     bool postRoute) {
+  if (started_ || !path || path[0] != '/' || path[1] == '\0' ||
+      (!legacyHandler && !requestHandler) ||
       strlen(path) > kMaxRoutePathLength || isReservedRoute(path) ||
       applicationRouteCount_ >= kMaxApplicationRoutes) {
     return false;
@@ -57,8 +76,11 @@ bool WebService::addApplicationRoute(const char* label, const char* path,
   ApplicationRoute& route = applicationRoutes_[applicationRouteCount_++];
   strlcpy(route.path, path, sizeof(route.path));
   if (label) strlcpy(route.label, label, sizeof(route.label));
-  route.handler = handler;
+  route.requestAware = requestHandler != nullptr;
+  if (route.requestAware) route.handler.request = requestHandler;
+  else route.handler.legacy = legacyHandler;
   route.context = context;
+  route.postRoute = postRoute;
   return true;
 }
 
@@ -121,7 +143,8 @@ void WebService::registerRoutes() {
   server_.on("/api/ota", HTTP_POST, [this]() { finishOtaUpload(); },
              [this]() { handleOtaUpload(); });
   for (size_t index = 0; index < applicationRouteCount_; ++index) {
-    server_.on(applicationRoutes_[index].path, HTTP_GET,
+    server_.on(applicationRoutes_[index].path,
+               applicationRoutes_[index].postRoute ? HTTP_POST : HTTP_GET,
                [this, index]() { dispatchApplicationRoute(index); });
   }
   server_.onNotFound([this]() { server_.send(404, "text/plain", "Not found\n"); });
@@ -159,6 +182,14 @@ void WebService::endApplicationPage(void* context) {
   static_cast<WebService*>(context)->endPage();
 }
 
+bool WebService::applicationRequestHasArg(void* context, const char* name) {
+  return static_cast<WebService*>(context)->server_.hasArg(name);
+}
+
+String WebService::applicationRequestArg(void* context, const char* name) {
+  return static_cast<WebService*>(context)->server_.arg(name);
+}
+
 void WebService::dispatchApplicationRoute(size_t index) {
   if (index >= applicationRouteCount_) {
     server_.send(500, "text/plain", "Invalid route\n");
@@ -166,9 +197,11 @@ void WebService::dispatchApplicationRoute(size_t index) {
   }
   ApplicationRoute& route = applicationRoutes_[index];
   activeApplicationPath_ = route.path;
+  WebRequest request(applicationRequestHasArg, applicationRequestArg, this);
   WebResponse response(sendApplicationResponse, beginApplicationPage,
                        writeApplicationPage, endApplicationPage, this);
-  route.handler(response, route.context);
+  if (route.requestAware) route.handler.request(request, response, route.context);
+  else route.handler.legacy(response, route.context);
   activeApplicationPath_ = nullptr;
   if (!response.sent()) server_.send(500, "text/plain", "Handler did not respond\n");
 }

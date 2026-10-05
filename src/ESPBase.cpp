@@ -13,8 +13,21 @@ bool ESPBase::addGetRoute(const char* path, WebRouteHandler handler, void* conte
   return webService_.addGetRoute(path, handler, context);
 }
 
+bool ESPBase::addGetRoute(const char* path, WebRequestRouteHandler handler, void* context) {
+  return webService_.addGetRoute(path, handler, context);
+}
+
+bool ESPBase::addPostRoute(const char* path, WebRequestRouteHandler handler, void* context) {
+  return webService_.addPostRoute(path, handler, context);
+}
+
 bool ESPBase::addPage(const char* label, const char* path, WebRouteHandler handler,
                       void* context) {
+  return webService_.addPage(label, path, handler, context);
+}
+
+bool ESPBase::addPage(const char* label, const char* path,
+                      WebRequestRouteHandler handler, void* context) {
   return webService_.addPage(label, path, handler, context);
 }
 

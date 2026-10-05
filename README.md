@@ -24,7 +24,7 @@ void loop() {
 ```
 
 `examples/Minimal/Minimal.ino` est le modèle officiel. Le constructeur sans
-argument expose le nom `ESP_BASE` et la version `2.3.0`. Une application peut
+argument expose le nom `ESP_BASE` et la version `2.4.0`. Une application peut
 fournir son propre nom et sa propre version :
 
 ```cpp
@@ -67,11 +67,14 @@ disponible à 115200 bauds avec `WIFI <ssid>|<password>`, `STATUS`, `LOGS`,
 
 ## Extension Web applicative
 
-Les routes doivent être enregistrées avant `espBase.begin()`. Une route API GET :
+Les routes doivent être enregistrées avant `espBase.begin()`. Les callbacks
+2.3.0 restent acceptés. Un callback peut aussi recevoir une vue temporaire de
+la requête afin de lire les arguments GET déjà décodés par le serveur :
 
 ```cpp
-void handleValue(WebResponse& response, void*) {
-  response.sendJson("{\"value\":42}");
+void handleValue(WebRequest& request, WebResponse& response, void*) {
+  const String value = request.arg("value");
+  response.sendText(request.hasArg("value") ? value.c_str() : "missing", 200);
 }
 
 void setup() {
@@ -97,7 +100,30 @@ void setup() {
 
 `WebResponse` fournit `sendJson()`, `sendText()`, `beginPage()`, `write()` et
 `endPage()`. Les callbacks acceptent un pointeur de contexte optionnel. La
-capacité partagée est de quatre routes/pages GET applicatives.
+capacité partagée est de quatre routes/pages applicatives.
+
+Un formulaire POST classique réutilise le même callback et `WebRequest` :
+
+```cpp
+void saveTime(WebRequest& request, WebResponse& response, void*) {
+  if (!request.hasArg("server") || !request.hasArg("timezone")) {
+    response.sendText("missing", 400);
+    return;
+  }
+  const String server = request.arg("server");
+  const String timezone = request.arg("timezone");
+  response.sendText("Saved");
+}
+
+void setup() {
+  espBase.addPostRoute("/time/save", saveTime);
+  espBase.begin();
+}
+```
+
+`addPostRoute()` traite uniquement les arguments d'un formulaire POST classique.
+Il n'expose ni corps brut, ni JSON générique, ni upload multipart. Les routes
+GET, POST et pages partagent la capacité fixe de quatre routes applicatives.
 
 ## MQTT
 

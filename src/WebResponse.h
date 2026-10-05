@@ -2,6 +2,8 @@
 
 #include <Arduino.h>
 
+#include "WebRequest.h"
+
 class WebResponse {
  public:
   void sendJson(const char* body, uint16_t statusCode = 200);
@@ -34,3 +36,4 @@ class WebResponse {
 };
 
 using WebRouteHandler = void (*)(WebResponse&, void*);
+using WebRequestRouteHandler = void (*)(WebRequest&, WebResponse&, void*);
