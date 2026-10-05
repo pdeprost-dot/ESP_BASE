@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.4.1
+
+- Release de packaging et de distribution Arduino, sans changement fonctionnel
+  du coeur ESP_BASE.
+- Ajout des exemples officiels Minimal, DHT22 et NTPSystemMonitor.
+- Ajout de la licence MIT et finalisation des metadonnees Arduino.
+
 ## 2.4.0
 
 - Vue publique `WebRequest` pour lire les arguments GET applicatifs.

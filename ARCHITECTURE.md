@@ -43,19 +43,19 @@ disponible comme solution de secours.
 ## Web
 
 Les réponses sont construites avec de petits buffers fixes ou envoyées par
-fragments. Les consommateurs peuvent ajouter quatre routes/pages GET bornées,
+fragments. Les consommateurs peuvent ajouter quatre routes/pages GET ou POST bornées,
 sans accès au serveur natif. Voir [`docs/WEB_API.md`](docs/WEB_API.md).
 
 ## Bibliothèque Arduino
 
-`library.properties`, `src/` et `examples/Minimal/` suivent la structure
-Arduino standard. Un projet inclut uniquement `<ESPBase.h>` ; les autres
-classes sont des détails internes et ne doivent pas être orchestrées par son
-sketch.
+`library.properties`, `src/` et les exemples officiels `Minimal`, `DHT22` et
+`NTPSystemMonitor` suivent la structure Arduino standard. Un projet inclut
+uniquement `<ESPBase.h>` ; les autres classes sont des détails internes et ne
+doivent pas être orchestrées par son sketch.
 
 ## Portabilité future
 
 Les includes propres aux plateformes restent dans `PlatformCompat`, les
 services concernés et le backend de `ConfigStore`. ESP32 est validé par
-compilation pour 2.3.0 ; la validation matérielle reste à effectuer.
+compilation pour 2.4.1 ; la validation matérielle reste à effectuer.
 

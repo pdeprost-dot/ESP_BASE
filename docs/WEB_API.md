@@ -52,10 +52,11 @@ routes réservées `/`, `/wifi`, `/mqtt`, `/logs`, `/system`, `/api/status`,
 `/api/ota`. Le serveur natif
 ESP8266/ESP32 n'est jamais exposé.
 
-Les limites des routes applicatives restent : GET uniquement, quatre routes/pages
-applicatives, libellés de 20 caractères, chemins de 47 caractères, fragments
-HTML applicatifs et aucun accès public aux paramètres HTTP. ESP32 est validé
-par compilation uniquement. WebSocket et SSE ne sont pas inclus.
+Les limites des routes applicatives restent : quatre routes/pages GET ou POST,
+libellés de 20 caractères, chemins de 47 caractères, fragments HTML
+applicatifs et accès aux arguments de formulaire uniquement via `WebRequest`.
+ESP32 est validé par compilation uniquement. WebSocket et SSE ne sont pas
+inclus.
 
 Une route visible dans la navigation utilise la même capacité avec :
 
@@ -144,7 +145,7 @@ le hostname ESP_BASE et journalise début, progression bornée, fin et erreurs.
 
 ## Limites de sécurité
 
-La version 2.3.0 ne comporte volontairement aucune authentification
+La version 2.4.1 ne comporte volontairement aucune authentification
 applicative : ni HTTP Basic, ni mot de passe Web OTA, ni mot de passe
 ArduinoOTA. Ces fonctions doivent rester strictement sur un LAN de confiance et
 ne doivent pas être exposées à Internet. Les mots de passe conservés sont

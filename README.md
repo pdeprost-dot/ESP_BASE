@@ -24,7 +24,7 @@ void loop() {
 ```
 
 `examples/Minimal/Minimal.ino` est le modèle officiel. Le constructeur sans
-argument expose le nom `ESP_BASE` et la version `2.4.0`. Une application peut
+argument expose le nom `ESP_BASE` et la version `2.4.1`. Une application peut
 fournir son propre nom et sa propre version :
 
 ```cpp
@@ -174,14 +174,14 @@ arduino-cli compile --warnings all --fqbn esp8266:esp8266:nodemcuv2 `
   --library . examples/Minimal
 ```
 
-Plateformes vérifiées pour 2.3.0 :
+Plateformes vérifiées pour 2.4.1 :
 
 - ESP8266 NodeMCU et Wemos D1 mini : compilation et validation physique ;
 - ESP32 générique : compilation validée, sans campagne physique équivalente.
 
 ## Sécurité
 
-ESP_BASE 2.3.0 cible un LAN de confiance. Il n'offre pas encore
+ESP_BASE 2.4.1 cible un LAN de confiance. Il n'offre pas encore
 d'authentification générale pour l'interface Web, Web OTA ou ArduinoOTA, et le
 transport MQTT n'utilise pas TLS. Ne jamais exposer directement ces services à
 Internet ou à un réseau non fiable. Les mots de passe Wi-Fi/MQTT ne sont jamais
@@ -190,7 +190,15 @@ défaut mais permettent leur affichage local volontaire.
 
 ## Documentation complémentaire
 
+- [docs/ARDUINO_IDE.md](docs/ARDUINO_IDE.md) : installation et premiers pas
+  dans Arduino IDE ;
+- [docs/AI_DEVELOPMENT.md](docs/AI_DEVELOPMENT.md) : création d'une application
+  ESP_BASE avec une IA de développement ;
 - [ARCHITECTURE.md](ARCHITECTURE.md) : composants et orchestration ;
 - [CONVENTIONS.md](CONVENTIONS.md) : règles de développement ;
-- [AGENTS.md](AGENTS.md) : contexte autonome pour les assistants ;
+- [AGENTS.md](AGENTS.md) : contexte autonome pour le développement assisté par
+  IA ;
+- exemples officiels : [`Minimal`](examples/Minimal/Minimal.ino),
+  [`DHT22`](examples/DHT22/DHT22.ino) et
+  [`NTPSystemMonitor`](examples/NTPSystemMonitor/NTPSystemMonitor.ino) ;
 - [docs/WEB_API.md](docs/WEB_API.md) : routes, provisioning et limites Web.
