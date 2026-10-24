@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.4.2 (non publiée)
+## 2.4.2
 
 - Disponibilité réseau centralisée : Wi-Fi STA, ou sur ESP32 Ethernet avec
   lien actif et adresse IPv4 attribuée.

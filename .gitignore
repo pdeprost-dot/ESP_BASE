@@ -6,6 +6,7 @@ build/
 *.map
 *.hex
 *.eep
+*.zip
 *.log
 .vscode/
 .idea/
