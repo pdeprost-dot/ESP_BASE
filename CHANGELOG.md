@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.4.2 (non publiée)
+
+- Disponibilité réseau centralisée : Wi-Fi STA, ou sur ESP32 Ethernet avec
+  lien actif et adresse IPv4 attribuée.
+- Web OTA, ArduinoOTA et MQTT desservis sur le transport réseau opérationnel.
+- Refus HTTP 409 conservé lorsqu'aucun transport ne possède de connexion
+  exploitable ; contrôles Update, intégrité, partition et redémarrage inchangés.
+
 ## 2.4.1
 
 - Release de packaging et de distribution Arduino, sans changement fonctionnel

@@ -24,7 +24,7 @@ void loop() {
 ```
 
 `examples/Minimal/Minimal.ino` est le modèle officiel. Le constructeur sans
-argument expose le nom `ESP_BASE` et la version `2.4.1`. Une application peut
+argument expose le nom `ESP_BASE` et la version `2.4.2`. Une application peut
 fournir son propre nom et sa propre version :
 
 ```cpp
@@ -51,6 +51,12 @@ utiles plus le terminateur nul.
 
 Tous les services progressent via `begin()`/`loop()` sans attente longue dans
 la boucle applicative.
+
+Sur ESP32, Web OTA, ArduinoOTA et MQTT acceptent aussi une interface Ethernet
+dont le lien est actif et qui possède une adresse IPv4. L'initialisation du PHY
+ou le lien seul ne suffisent pas. ESP8266 conserve le fonctionnement Wi-Fi
+exclusif. L'application reste responsable de l'initialisation matérielle de
+l'interface Ethernet avant son utilisation.
 
 ## Premier démarrage et Wi-Fi
 

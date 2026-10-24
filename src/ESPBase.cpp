@@ -58,8 +58,9 @@ void ESPBase::begin() {
 void ESPBase::loop() {
   tickSerial();
   if (!otaService_.busy()) wifiService_.tick();
-  otaService_.tick(wifiService_.connected());
-  mqttService_.tick(wifiService_.connected(), otaService_.busy());
+  const bool networkConnected = PlatformCompat::networkConnected();
+  otaService_.tick(networkConnected);
+  mqttService_.tick(networkConnected, otaService_.busy());
   webService_.tick();
   yield();
 }

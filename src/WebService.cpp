@@ -414,7 +414,7 @@ void WebService::sendOtaPage() {
   server_.sendContent("<section class='card'><div class='metrics'>");
   sendHtmlValue("Firmware", firmwareVersion_);
   sendHtmlValue("Device ID", identity_->id());
-  sendHtmlValue("ArduinoOTA", wifi_->connected() ? "PRÊT SUR LE LAN" : "INDISPONIBLE");
+  sendHtmlValue("ArduinoOTA", PlatformCompat::networkConnected() ? "PRÊT SUR LE LAN" : "INDISPONIBLE");
   server_.sendContent(
       "</div><h2>Firmware Web OTA</h2><p class='muted'>Sélectionnez uniquement un fichier "
       ".bin compilé pour cette carte. La configuration Wi-Fi est conservée.</p>"
@@ -745,7 +745,7 @@ void WebService::sendWifiScan() {
 void WebService::handleOtaUpload() {
   HTTPUpload& upload = server_.upload();
   if (upload.status == UPLOAD_FILE_START) {
-    otaUploadAuthorized_ = wifi_->connected();
+    otaUploadAuthorized_ = PlatformCompat::networkConnected();
     otaUploadSuccess_ = otaUploadAuthorized_ && ota_->beginWebUpdate();
   } else if (upload.status == UPLOAD_FILE_WRITE) {
     if (otaUploadSuccess_) otaUploadSuccess_ = ota_->writeWebUpdate(upload.buf, upload.currentSize);
@@ -760,8 +760,8 @@ void WebService::handleOtaUpload() {
 
 void WebService::finishOtaUpload() {
   if (!otaUploadAuthorized_) {
-    if (!wifi_->connected()) {
-      server_.send(409, "text/plain", "OTA requires a connected STA network\n");
+    if (!PlatformCompat::networkConnected()) {
+      server_.send(409, "text/plain", "OTA requires an operational network connection\n");
     } else server_.send(403, "text/plain", "OTA upload unavailable\n");
     return;
   }
